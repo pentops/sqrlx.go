@@ -44,7 +44,7 @@ func TestQuery(t *testing.T) {
 			return &sql.Rows{}, nil
 		}
 		q := sq.Select("a").From("b").Where("c = ?", "hello")
-		_, err := w.Query(ctx, q)
+		_, err := w.Select(ctx, q)
 		if err != nil {
 			t.Fatalf("Got error %s", err.Error())
 		}
@@ -52,7 +52,7 @@ func TestQuery(t *testing.T) {
 
 	t.Run("Squrl Error", func(t *testing.T) {
 		q := sq.Select()
-		_, err := w.Query(ctx, q)
+		_, err := w.Select(ctx, q)
 		if err == nil {
 			t.Errorf("Expected Error")
 		}
@@ -78,7 +78,7 @@ func TestQueryRow(t *testing.T) {
 			return &sql.Rows{}, nil
 		}
 		q := sq.Select("a").From("b").Where("c = ?", "hello")
-		row := w.QueryRow(ctx, q)
+		row := w.SelectRow(ctx, q)
 		if row.err != nil {
 			t.Fatalf("Got error %s", err.Error())
 		}
@@ -87,7 +87,7 @@ func TestQueryRow(t *testing.T) {
 
 	t.Run("Squrl Error", func(t *testing.T) {
 		q := sq.Select()
-		row := w.QueryRow(ctx, q)
+		row := w.SelectRow(ctx, q)
 		if row.err == nil {
 			t.Errorf("Expected Error")
 		}
