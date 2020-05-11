@@ -33,3 +33,10 @@ func (r Row) Scan(into ...interface{}) error {
 
 	return r.Rows.Scan(into...)
 }
+
+func (r Row) Columns() ([]string, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.Rows.Columns()
+}

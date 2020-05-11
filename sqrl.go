@@ -3,6 +3,7 @@ package sqrlx
 import (
 	"context"
 	"database/sql"
+	"log"
 	"reflect"
 
 	sq "github.com/elgris/sqrl"
@@ -32,7 +33,7 @@ type Transaction interface {
 	SelectRow(context.Context, *sq.SelectBuilder) *Row
 	Select(context.Context, *sq.SelectBuilder) (*Rows, error)
 	Insert(context.Context, *sq.InsertBuilder) (sql.Result, error)
-	InsertStruct(context.Context, string, interface{}) (sql.Result, error)
+	InsertStruct(context.Context, string, ...interface{}) (sql.Result, error)
 	Update(context.Context, *sq.UpdateBuilder) (sql.Result, error)
 
 	QueryRaw(context.Context, string, ...interface{}) (*Rows, error)
@@ -87,6 +88,8 @@ func (w QueryWrapper) SelectRow(ctx context.Context, bb *sq.SelectBuilder) *Row 
 		}
 	}
 
+	log.Printf("Q: %s\n", statement)
+
 	rows, err := w.db.QueryContext(ctx, statement, params...)
 	if err != nil {
 		return &Row{
@@ -109,11 +112,16 @@ func (w QueryWrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Res
 }
 
 func (w QueryWrapper) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
-	return w.db.ExecContext(ctx, statement, params...)
+	res, err := w.db.ExecContext(ctx, statement, params...)
+	if err != nil {
+		log.Printf("EXEC %s", statement)
+		return nil, err
+	}
+	return res, nil
 }
 
-func (w QueryWrapper) InsertStruct(ctx context.Context, tableName string, vals interface{}) (sql.Result, error) {
-	bb, err := InsertStruct(tableName, vals)
+func (w QueryWrapper) InsertStruct(ctx context.Context, tableName string, vals ...interface{}) (sql.Result, error) {
+	bb, err := InsertStruct(tableName, vals...)
 	if err != nil {
 		return nil, err
 	}

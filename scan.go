@@ -10,6 +10,63 @@ type Scannable interface {
 	Columns() ([]string, error)
 }
 
+func addNamed(structCols map[string]interface{}, rv reflect.Value, override bool) error {
+
+	// TODO: Check types to raise errors
+	rt := rv.Type()
+	for i := 0; i < rv.NumField(); i++ {
+
+		field := rt.Field(i)
+
+		tag := field.Tag
+		tagName := tag.Get("sql")
+		if tagName == "-" {
+			continue
+		}
+		if field.Anonymous && field.Type.Kind() == reflect.Struct {
+			if err := addNamed(structCols, rv.Field(i), false); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if tagName == "" {
+			continue
+		}
+
+		fieldInterface := rv.Field(i).Addr().Interface()
+		if override {
+			structCols[tagName] = fieldInterface
+		} else if _, ok := structCols[tagName]; !ok {
+			structCols[tagName] = fieldInterface
+		}
+	}
+	return nil
+}
+
+func StructColNames(dest interface{}) ([]string, error) {
+	rv := reflect.ValueOf(dest)
+	if rv.Kind() != reflect.Ptr {
+		return nil, fmt.Errorf("ScanStruct requires a pointer to a struct")
+	}
+	rv = rv.Elem()
+	if rv.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("ScanStruct requires a pointer to a struct")
+	}
+
+	structCols := map[string]interface{}{}
+
+	if err := addNamed(structCols, rv, true); err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(structCols))
+	for name := range structCols {
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 // ScanStruct scans scannable once, stores vals into the struct.
 func ScanStruct(src Scannable, dest interface{}) error {
 
@@ -24,16 +81,8 @@ func ScanStruct(src Scannable, dest interface{}) error {
 
 	structCols := map[string]interface{}{}
 
-	// TODO: Check types to raise errors
-	rt := reflect.TypeOf(dest).Elem()
-	for i := 0; i < rv.NumField(); i++ {
-		tag := rt.Field(i).Tag
-		tagName := tag.Get("sql")
-		if tagName == "" || tagName == "-" {
-			continue
-		}
-		fieldInterface := rv.Field(i).Addr().Interface()
-		structCols[tagName] = fieldInterface
+	if err := addNamed(structCols, rv, true); err != nil {
+		return err
 	}
 
 	cols, err := src.Columns()
