@@ -44,7 +44,7 @@ func addNamed(structCols map[string]interface{}, rv reflect.Value, override bool
 	return nil
 }
 
-func StructColNames(dest interface{}) ([]string, error) {
+func StructColNames(dest interface{}, prefix string) ([]string, error) {
 	rv := reflect.ValueOf(dest)
 	if rv.Kind() != reflect.Ptr {
 		return nil, fmt.Errorf("ScanStruct requires a pointer to a struct")
@@ -62,7 +62,7 @@ func StructColNames(dest interface{}) ([]string, error) {
 
 	names := make([]string, 0, len(structCols))
 	for name := range structCols {
-		names = append(names, name)
+		names = append(names, prefix+name)
 	}
 	return names, nil
 }

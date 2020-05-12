@@ -140,6 +140,7 @@ func (w QueryWrapper) Update(ctx context.Context, bb *sq.UpdateBuilder) (sql.Res
 func (w QueryWrapper) Select(ctx context.Context, bb *sq.SelectBuilder) (*Rows, error) {
 	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
 
+	log.Printf("SELECT %s", statement)
 	if err != nil {
 		return nil, err
 	}
