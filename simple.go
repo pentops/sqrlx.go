@@ -23,21 +23,24 @@ func InsertStruct(table string, srcs ...interface{}) (*sq.InsertBuilder, error) 
 			return nil, fmt.Errorf("InsertStruct requires a pointer to a struct")
 		}
 
-		values := make([]interface{}, 0)
+		structCols := map[string]interface{}{}
 
-		// TODO: Check types to raise errors
-		rt := reflect.TypeOf(src).Elem()
-		for i := 0; i < rv.NumField(); i++ {
-			tag := rt.Field(i).Tag
-			tagName := tag.Get("sql")
-			if tagName == "" || tagName == "-" {
-				continue
-			}
-			fieldInterface := rv.Field(i).Interface()
-			values = append(values, fieldInterface)
-			if idx == 0 {
+		if err := addNamed(structCols, rv, true); err != nil {
+			return nil, err
+		}
+
+		if idx == 0 {
+			for tagName := range structCols {
 				names = append(names, tagName)
 			}
+		} else if len(names) != len(structCols) {
+			return nil, fmt.Errorf("Length Mismatch on types")
+		}
+
+		values := make([]interface{}, 0)
+
+		for _, tagName := range names {
+			values = append(values, structCols[tagName])
 		}
 
 		builder = builder.Values(values...)

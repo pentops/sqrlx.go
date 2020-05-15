@@ -3,7 +3,6 @@ package sqrlx
 import (
 	"context"
 	"database/sql"
-	"log"
 	"reflect"
 
 	sq "github.com/elgris/sqrl"
@@ -88,8 +87,6 @@ func (w QueryWrapper) SelectRow(ctx context.Context, bb *sq.SelectBuilder) *Row 
 		}
 	}
 
-	log.Printf("Q: %s\n", statement)
-
 	rows, err := w.db.QueryContext(ctx, statement, params...)
 	if err != nil {
 		return &Row{
@@ -114,7 +111,6 @@ func (w QueryWrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Res
 func (w QueryWrapper) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
 	res, err := w.db.ExecContext(ctx, statement, params...)
 	if err != nil {
-		log.Printf("EXEC %s", statement)
 		return nil, err
 	}
 	return res, nil
@@ -140,7 +136,6 @@ func (w QueryWrapper) Update(ctx context.Context, bb *sq.UpdateBuilder) (sql.Res
 func (w QueryWrapper) Select(ctx context.Context, bb *sq.SelectBuilder) (*Rows, error) {
 	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
 
-	log.Printf("SELECT %s", statement)
 	if err != nil {
 		return nil, err
 	}
