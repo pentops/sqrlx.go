@@ -82,8 +82,18 @@ func New(conn Connection, placeholder sq.PlaceholderFormat) (*Wrapper, error) {
 	}, nil
 }
 
+// Transact calls cb within a transaction. The begin call is retried if
+// required. If cb returns an error, the transaction is rolled back, otherwise
+// it is committed. Failed commits are not retried, and will return an error
 func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(context.Context, Transaction) error) error {
-	tx, err := w.db.BeginTx(ctx, opts)
+	var tx *sql.Tx
+	var err error
+	for tries := 0; tries < w.RetryCount; tries++ {
+		tx, err = w.db.BeginTx(ctx, opts)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -107,17 +117,6 @@ func (w QueryWrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Res
 	}
 
 	return w.ExecRaw(ctx, statement, params...)
-}
-
-func (w QueryWrapper) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
-	res, err := w.db.ExecContext(ctx, statement, params...)
-	if err != nil {
-		return nil, &QueryError{
-			cause:     err,
-			Statement: statement,
-		}
-	}
-	return res, nil
 }
 
 func (w QueryWrapper) InsertStruct(ctx context.Context, tableName string, vals ...interface{}) (sql.Result, error) {
@@ -186,4 +185,16 @@ func (w QueryWrapper) QueryRaw(ctx context.Context, statement string, params ...
 	return &Rows{
 		IRows: rows,
 	}, nil
+}
+
+// ExecRaw runs an exec statement directly with the driver. No retries are attempted.
+func (w QueryWrapper) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
+	res, err := w.db.ExecContext(ctx, statement, params...)
+	if err != nil {
+		return nil, &QueryError{
+			cause:     err,
+			Statement: statement,
+		}
+	}
+	return res, nil
 }
