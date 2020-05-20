@@ -34,6 +34,10 @@ func (r Row) Scan(into ...interface{}) error {
 	return r.Rows.Scan(into...)
 }
 
+func (r Row) ScanStruct(into interface{}) error {
+	return ScanStruct(r, into)
+}
+
 func (r Row) Columns() ([]string, error) {
 	if r.err != nil {
 		return nil, r.err

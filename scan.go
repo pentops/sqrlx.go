@@ -10,7 +10,12 @@ type Scannable interface {
 	Columns() ([]string, error)
 }
 
-func addNamed(structCols map[string]interface{}, rv reflect.Value, override bool) error {
+type walkBaton struct {
+	structCols map[string]interface{}
+	override   bool
+}
+
+func addNamed(bb *walkBaton, rv reflect.Value) error {
 
 	// TODO: Check types to raise errors
 	rt := rv.Type()
@@ -24,9 +29,24 @@ func addNamed(structCols map[string]interface{}, rv reflect.Value, override bool
 			continue
 		}
 		if field.Anonymous && field.Type.Kind() == reflect.Struct {
-			if err := addNamed(structCols, rv.Field(i), false); err != nil {
+			if err := addNamed(&walkBaton{
+				structCols: bb.structCols,
+				override:   false,
+			}, rv.Field(i)); err != nil {
 				return err
 			}
+			continue
+		}
+
+		if field.Anonymous && field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Struct {
+			val := reflect.New(field.Type.Elem())
+			if err := addNamed(&walkBaton{
+				structCols: bb.structCols,
+				override:   false,
+			}, val.Elem()); err != nil {
+				return err
+			}
+			rv.Field(i).Set(val)
 			continue
 		}
 
@@ -35,10 +55,11 @@ func addNamed(structCols map[string]interface{}, rv reflect.Value, override bool
 		}
 
 		fieldInterface := rv.Field(i).Addr().Interface()
-		if override {
-			structCols[tagName] = fieldInterface
-		} else if _, ok := structCols[tagName]; !ok {
-			structCols[tagName] = fieldInterface
+
+		if bb.override {
+			bb.structCols[tagName] = fieldInterface
+		} else if _, ok := bb.structCols[tagName]; !ok {
+			bb.structCols[tagName] = fieldInterface
 		}
 	}
 	return nil
@@ -56,7 +77,10 @@ func StructColNames(dest interface{}, prefix string) ([]string, error) {
 
 	structCols := map[string]interface{}{}
 
-	if err := addNamed(structCols, rv, true); err != nil {
+	if err := addNamed(&walkBaton{
+		structCols: structCols,
+		override:   true,
+	}, rv); err != nil {
 		return nil, err
 	}
 
@@ -69,7 +93,6 @@ func StructColNames(dest interface{}, prefix string) ([]string, error) {
 
 // ScanStruct scans scannable once, stores vals into the struct.
 func ScanStruct(src Scannable, dest interface{}) error {
-
 	rv := reflect.ValueOf(dest)
 	if rv.Kind() != reflect.Ptr {
 		return fmt.Errorf("ScanStruct requires a pointer to a struct")
@@ -81,7 +104,10 @@ func ScanStruct(src Scannable, dest interface{}) error {
 
 	structCols := map[string]interface{}{}
 
-	if err := addNamed(structCols, rv, true); err != nil {
+	if err := addNamed(&walkBaton{
+		structCols: structCols,
+		override:   true,
+	}, rv); err != nil {
 		return err
 	}
 
@@ -95,6 +121,7 @@ func ScanStruct(src Scannable, dest interface{}) error {
 	for idx, name := range cols {
 		structCol, ok := structCols[name]
 		if !ok {
+
 			return fmt.Errorf("No matching struct field for %s", name)
 		}
 		toScan[idx] = structCol

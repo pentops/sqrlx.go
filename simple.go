@@ -26,7 +26,9 @@ func InsertStruct(table string, srcs ...interface{}) (*sq.InsertBuilder, error) 
 
 		structCols := map[string]interface{}{}
 
-		if err := addNamed(structCols, rv, true); err != nil {
+		if err := addNamed(&walkBaton{
+			structCols: structCols,
+		}, rv); err != nil {
 			return nil, err
 		}
 
@@ -67,7 +69,10 @@ func UpdateStruct(table string, src interface{}) (*sq.UpdateBuilder, error) {
 
 	structCols := map[string]interface{}{}
 
-	if err := addNamed(structCols, rv, true); err != nil {
+	if err := addNamed(&walkBaton{
+		structCols: structCols,
+		override:   true,
+	}, rv); err != nil {
 		return nil, err
 	}
 
