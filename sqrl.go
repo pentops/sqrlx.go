@@ -148,7 +148,7 @@ func (w QueryWrapper) Select(ctx context.Context, bb *sq.SelectBuilder) (*Rows, 
 	for tries := 0; tries < w.RetryCount; tries++ {
 		rows, err = w.QueryRaw(ctx, statement, params...)
 		if err == nil || err == sql.ErrNoRows {
-			return rows, nil
+			return rows, err
 		}
 	}
 
