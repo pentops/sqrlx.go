@@ -3,6 +3,7 @@ package sqrlx
 import (
 	"context"
 	"database/sql"
+	"log"
 	"reflect"
 
 	sq "github.com/elgris/sqrl"
@@ -101,6 +102,7 @@ func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(cont
 	txWrapped := &QueryWrapper{
 		db:                tx,
 		placeholderFormat: w.placeholderFormat,
+		RetryCount:        w.RetryCount,
 	}
 
 	if err := cb(ctx, txWrapped); err != nil {
@@ -152,7 +154,7 @@ func (w QueryWrapper) Select(ctx context.Context, bb *sq.SelectBuilder) (*Rows, 
 		}
 	}
 
-	return nil, err
+	return rows, err
 }
 
 // SelectRow returns a single row, otherwise is the same as Select
