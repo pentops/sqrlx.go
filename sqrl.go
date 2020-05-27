@@ -144,7 +144,15 @@ func (w QueryWrapper) Select(ctx context.Context, bb *sq.SelectBuilder) (*Rows, 
 		return nil, err
 	}
 
-	return w.QueryRaw(ctx, statement, params...)
+	var rows *Rows
+	for tries := 0; tries < w.RetryCount; tries++ {
+		rows, err = w.QueryRaw(ctx, statement, params...)
+		if err == nil || err == sql.ErrNoRows {
+			return rows, nil
+		}
+	}
+
+	return nil, err
 }
 
 // SelectRow returns a single row, otherwise is the same as Select
