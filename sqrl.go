@@ -3,7 +3,6 @@ package sqrlx
 import (
 	"context"
 	"database/sql"
-	"log"
 	"reflect"
 
 	sq "github.com/elgris/sqrl"
