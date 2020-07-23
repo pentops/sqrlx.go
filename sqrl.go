@@ -3,6 +3,7 @@ package sqrlx
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"reflect"
 
 	sq "github.com/elgris/sqrl"
@@ -67,6 +68,7 @@ type QueryWrapper struct {
 	db                Queryer
 	placeholderFormat sq.PlaceholderFormat
 	RetryCount        int
+	isTransaction     bool
 }
 
 var _ Transaction = Wrapper{}
@@ -102,6 +104,7 @@ func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(cont
 		db:                tx,
 		placeholderFormat: w.placeholderFormat,
 		RetryCount:        w.RetryCount,
+		isTransaction:     true,
 	}
 
 	if err := cb(ctx, txWrapped); err != nil {
@@ -142,18 +145,28 @@ func (w QueryWrapper) Select(ctx context.Context, bb *sq.SelectBuilder) (*Rows, 
 	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
 
 	if err != nil {
+		fmt.Printf("ERR SELECT %s\n", err.Error())
 		return nil, err
 	}
 
 	var rows *Rows
+	var firstError error
 	for tries := 0; tries < w.RetryCount; tries++ {
 		rows, err = w.QueryRaw(ctx, statement, params...)
-		if err == nil || err == sql.ErrNoRows {
+		if err == nil || err == sql.ErrNoRows || w.isTransaction {
 			return rows, err
+		}
+
+		// TODO: Return immediately if it isn't a connection issue
+		if firstError == nil {
+			firstError = err
 		}
 	}
 
-	return rows, err
+	if firstError != nil {
+		return nil, firstError
+	}
+	return rows, nil
 }
 
 // SelectRow returns a single row, otherwise is the same as Select
