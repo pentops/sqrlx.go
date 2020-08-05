@@ -54,6 +54,7 @@ type Transaction interface {
 	Insert(context.Context, *sq.InsertBuilder) (sql.Result, error)
 	InsertStruct(context.Context, string, ...interface{}) (sql.Result, error)
 	Update(context.Context, *sq.UpdateBuilder) (sql.Result, error)
+	Delete(context.Context, *sq.DeleteBuilder) (sql.Result, error)
 
 	QueryRaw(context.Context, string, ...interface{}) (*Rows, error)
 	ExecRaw(context.Context, string, ...interface{}) (sql.Result, error)
@@ -132,6 +133,15 @@ func (w QueryWrapper) InsertStruct(ctx context.Context, tableName string, vals .
 }
 
 func (w QueryWrapper) Update(ctx context.Context, bb *sq.UpdateBuilder) (sql.Result, error) {
+	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	return w.db.ExecContext(ctx, statement, params...)
+}
+
+func (w QueryWrapper) Delete(ctx context.Context, bb *sq.DeleteBuilder) (sql.Result, error) {
 	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
 	if err != nil {
 		return nil, err
