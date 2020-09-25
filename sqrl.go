@@ -62,7 +62,9 @@ type Transaction interface {
 
 type Wrapper struct {
 	db Connection
-	QueryWrapper
+	//QueryWrapper
+	placeholderFormat sq.PlaceholderFormat
+	RetryCount        int
 }
 
 type QueryWrapper struct {
@@ -76,12 +78,15 @@ var _ Transaction = Wrapper{}
 
 func New(conn Connection, placeholder sq.PlaceholderFormat) (*Wrapper, error) {
 	return &Wrapper{
-		db: conn,
-		QueryWrapper: QueryWrapper{
-			db:                conn,
-			placeholderFormat: placeholder,
-			RetryCount:        3,
-		},
+		db:                conn,
+		placeholderFormat: placeholder,
+		RetryCount:        3,
+		/*
+			QueryWrapper: QueryWrapper{
+				db:                conn,
+				placeholderFormat: placeholder,
+				RetryCount:        3,
+			},*/
 	}, nil
 }
 
@@ -113,6 +118,82 @@ func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(cont
 		return err
 	}
 	return tx.Commit()
+}
+
+func (w Wrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Result, error) {
+	var res sql.Result
+	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+		var err error
+		res, err = tx.Insert(ctx, bb)
+		return err
+	})
+}
+
+func (w Wrapper) InsertStruct(ctx context.Context, table string, ss ...interface{}) (sql.Result, error) {
+	var res sql.Result
+	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+		var err error
+		res, err = tx.InsertStruct(ctx, table, ss...)
+		return err
+	})
+}
+
+func (w Wrapper) Update(ctx context.Context, bb *sq.UpdateBuilder) (sql.Result, error) {
+	var res sql.Result
+	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+		var err error
+		res, err = tx.Update(ctx, bb)
+		return err
+	})
+}
+
+func (w Wrapper) Delete(ctx context.Context, bb *sq.DeleteBuilder) (sql.Result, error) {
+	var res sql.Result
+	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+		var err error
+		res, err = tx.Delete(ctx, bb)
+		return err
+	})
+}
+
+func (w Wrapper) ExecRaw(ctx context.Context, q string, params ...interface{}) (sql.Result, error) {
+	var res sql.Result
+	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+		var err error
+		res, err = tx.ExecRaw(ctx, q, params...)
+		return err
+	})
+}
+
+func (w Wrapper) Select(ctx context.Context, bb *sq.SelectBuilder) (*Rows, error) {
+	var res *Rows
+	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+		var err error
+		res, err = tx.Select(ctx, bb)
+		return err
+	})
+}
+
+func (w Wrapper) QueryRaw(ctx context.Context, q string, params ...interface{}) (*Rows, error) {
+	var res *Rows
+	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+		var err error
+		res, err = tx.QueryRaw(ctx, q, params...)
+		return err
+	})
+}
+
+func (w Wrapper) SelectRow(ctx context.Context, bb *sq.SelectBuilder) *Row {
+	var res *Row
+	if err := w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+		res = tx.SelectRow(ctx, bb)
+		return nil
+	}); err != nil {
+		return &Row{
+			err: err,
+		}
+	}
+	return res
 }
 
 func (w QueryWrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Result, error) {

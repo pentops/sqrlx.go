@@ -2,34 +2,22 @@ package sqrlx
 
 import (
 	"context"
-	"database/sql"
+	"regexp"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	sq "github.com/elgris/sqrl"
+	_ "github.com/lib/pq"
 )
-
-type MockConn struct {
-	Connection
-
-	queryContext func(context.Context, string, ...interface{}) (*sql.Rows, error)
-	execContext  func(context.Context, string, ...interface{}) (sql.Result, error)
-}
-
-func (mc MockConn) QueryContext(ctx context.Context, sql string, args ...interface{}) (*sql.Rows, error) {
-	return mc.queryContext(ctx, sql, args)
-}
-
-func (mc MockConn) ExecContext(ctx context.Context, sql string, args ...interface{}) (sql.Result, error) {
-	return mc.execContext(ctx, sql, args)
-}
-
-type mockRows struct{}
 
 func TestQuery(t *testing.T) {
 
-	mockConn := &MockConn{}
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	w, err := New(mockConn, sq.Dollar)
+	w, err := New(db, sq.Dollar)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -37,20 +25,22 @@ func TestQuery(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Happy", func(t *testing.T) {
-		mockConn.queryContext = func(ctx context.Context, statement string, args ...interface{}) (*sql.Rows, error) {
-			if statement != "SELECT a FROM b WHERE c = $1" {
-				t.Errorf("Statement: %s", statement)
-			}
-			return &sql.Rows{}, nil
-		}
+		mock.ExpectBegin()
+		mock.ExpectQuery("SELECT a FROM b WHERE c = ").
+			WillReturnRows(sqlmock.NewRows([]string{"a"}).AddRow("A"))
+		mock.ExpectCommit()
 		q := sq.Select("a").From("b").Where("c = ?", "hello")
 		_, err := w.Select(ctx, q)
 		if err != nil {
 			t.Fatalf("Got error %s", err.Error())
 		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err.Error())
+		}
+
 	})
 
-	t.Run("Squrl Error", func(t *testing.T) {
+	t.Run("Sq Error", func(t *testing.T) {
 		q := sq.Select()
 		_, err := w.Select(ctx, q)
 		if err == nil {
@@ -61,9 +51,12 @@ func TestQuery(t *testing.T) {
 
 func TestQueryRow(t *testing.T) {
 
-	mockConn := &MockConn{}
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	w, err := New(mockConn, sq.Dollar)
+	w, err := New(db, sq.Dollar)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -71,12 +64,11 @@ func TestQueryRow(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Happy", func(t *testing.T) {
-		mockConn.queryContext = func(ctx context.Context, statement string, args ...interface{}) (*sql.Rows, error) {
-			if statement != "SELECT a FROM b WHERE c = $1" {
-				t.Errorf("Statement: %s", statement)
-			}
-			return &sql.Rows{}, nil
-		}
+		mock.ExpectBegin()
+		mock.ExpectQuery("SELECT a FROM b WHERE c = \\$1").
+			WillReturnRows(sqlmock.NewRows([]string{"a"}).AddRow("A"))
+		mock.ExpectCommit()
+
 		q := sq.Select("a").From("b").Where("c = ?", "hello")
 		row := w.SelectRow(ctx, q)
 		if row.err != nil {
@@ -142,9 +134,11 @@ func (m MockResult) RowsAffected() (int64, error) {
 
 func TestInsert(t *testing.T) {
 
-	mockConn := &MockConn{}
-
-	w, err := New(mockConn, sq.Dollar)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	w, err := New(db, sq.Dollar)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -152,13 +146,10 @@ func TestInsert(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Happy", func(t *testing.T) {
-		mockConn.execContext = func(ctx context.Context, statement string, args ...interface{}) (sql.Result, error) {
-			t.Log(statement)
-			if statement != "INSERT INTO b VALUES ($1)" {
-				t.Errorf("Statement: %s", statement)
-			}
-			return MockResult{}, nil
-		}
+		mock.ExpectBegin()
+		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO b VALUES ($1)")).
+			WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectCommit()
 		q := sq.Insert("b").Values("c")
 		_, err := w.Insert(ctx, q)
 		if err != nil {
@@ -178,9 +169,12 @@ func TestInsert(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 
-	mockConn := &MockConn{}
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err.Error())
+	}
 
-	w, err := New(mockConn, sq.Dollar)
+	w, err := New(db, sq.Dollar)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -188,13 +182,11 @@ func TestUpdate(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Happy", func(t *testing.T) {
-		mockConn.execContext = func(ctx context.Context, statement string, args ...interface{}) (sql.Result, error) {
-			t.Log(statement)
-			if statement != "UPDATE b SET c = $1" {
-				t.Errorf("Statement: %s", statement)
-			}
-			return MockResult{}, nil
-		}
+		mock.ExpectBegin()
+		mock.ExpectExec(regexp.QuoteMeta("UPDATE b SET c = $1")).
+			WillReturnResult(sqlmock.NewResult(1, 1))
+		mock.ExpectCommit()
+
 		q := sq.Update("b").Set("c", "world")
 		_, err := w.Update(ctx, q)
 		if err != nil {
