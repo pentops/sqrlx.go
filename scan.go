@@ -113,7 +113,7 @@ func ScanStruct(src Scannable, dest interface{}) error {
 
 	cols, err := src.Columns()
 	if err != nil {
-		return err
+		return fmt.Errorf("getting columns: %w", err)
 	}
 
 	toScan := make([]interface{}, len(cols))

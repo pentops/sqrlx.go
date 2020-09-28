@@ -17,7 +17,7 @@ type QueryError struct {
 }
 
 // Cause gives the driver error which was thrown
-func (err QueryError) Cause() error {
+func (err QueryError) Unwrap() error {
 	return err.cause
 }
 
@@ -58,6 +58,8 @@ type Transaction interface {
 
 	QueryRaw(context.Context, string, ...interface{}) (*Rows, error)
 	ExecRaw(context.Context, string, ...interface{}) (sql.Result, error)
+
+	Reset(context.Context) error
 }
 
 type Wrapper struct {
@@ -68,25 +70,21 @@ type Wrapper struct {
 }
 
 type QueryWrapper struct {
-	db                Queryer
+	tx                *sql.Tx
+	opts              *sql.TxOptions
+	connWrapper       Wrapper
 	placeholderFormat sq.PlaceholderFormat
 	RetryCount        int
 	isTransaction     bool
 }
 
-var _ Transaction = Wrapper{}
+//var _ Transaction = Wrapper{}
 
 func New(conn Connection, placeholder sq.PlaceholderFormat) (*Wrapper, error) {
 	return &Wrapper{
 		db:                conn,
 		placeholderFormat: placeholder,
 		RetryCount:        3,
-		/*
-			QueryWrapper: QueryWrapper{
-				db:                conn,
-				placeholderFormat: placeholder,
-				RetryCount:        3,
-			},*/
 	}, nil
 }
 
@@ -107,25 +105,40 @@ func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(cont
 	}
 
 	txWrapped := &QueryWrapper{
-		db:                tx,
+		tx:                tx,
+		opts:              opts,
+		connWrapper:       w,
 		placeholderFormat: w.placeholderFormat,
 		RetryCount:        w.RetryCount,
-		isTransaction:     true,
 	}
 
 	if err := cb(ctx, txWrapped); err != nil {
-		tx.Rollback()
+		txWrapped.tx.Rollback()
 		return err
 	}
-	return tx.Commit()
+	return txWrapped.tx.Commit()
 }
 
+func (w *QueryWrapper) Reset(ctx context.Context) error {
+	if err := w.tx.Rollback(); err != nil {
+		return err
+	}
+	newTx, err := w.connWrapper.db.BeginTx(ctx, w.opts)
+	if err != nil {
+		return err
+	}
+	w.tx = newTx
+	// rollback or commit happen after the callback returns in the initial Transact call
+	return nil
+}
+
+/*
 func (w Wrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Result, error) {
 	var res sql.Result
 	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
 		var err error
 		res, err = tx.Insert(ctx, bb)
-		return err
+		return wrapInsertError(err)
 	})
 }
 
@@ -134,7 +147,7 @@ func (w Wrapper) InsertStruct(ctx context.Context, table string, ss ...interface
 	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
 		var err error
 		res, err = tx.InsertStruct(ctx, table, ss...)
-		return err
+		return wrapInsertError(err)
 	})
 }
 
@@ -196,6 +209,8 @@ func (w Wrapper) SelectRow(ctx context.Context, bb *sq.SelectBuilder) *Row {
 	return res
 }
 
+*/
+
 func (w QueryWrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Result, error) {
 	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
 	if err != nil {
@@ -219,7 +234,7 @@ func (w QueryWrapper) Update(ctx context.Context, bb *sq.UpdateBuilder) (sql.Res
 		return nil, err
 	}
 
-	return w.db.ExecContext(ctx, statement, params...)
+	return w.tx.ExecContext(ctx, statement, params...)
 }
 
 func (w QueryWrapper) Delete(ctx context.Context, bb *sq.DeleteBuilder) (sql.Result, error) {
@@ -228,7 +243,7 @@ func (w QueryWrapper) Delete(ctx context.Context, bb *sq.DeleteBuilder) (sql.Res
 		return nil, err
 	}
 
-	return w.db.ExecContext(ctx, statement, params...)
+	return w.tx.ExecContext(ctx, statement, params...)
 }
 
 // Select runs a builder to query, returning Rows. Transient errors will be retried. Do not modify data in a select.
@@ -290,7 +305,7 @@ func (w QueryWrapper) SelectRaw(ctx context.Context, statement string, params ..
 // QueryRaw runs a query directly with the driver, returning wrapped rows. It
 // will not attempt to retry. Use SelectRaw for automatic retries
 func (w QueryWrapper) QueryRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
-	rows, err := w.db.QueryContext(ctx, statement, params...)
+	rows, err := w.tx.QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +317,7 @@ func (w QueryWrapper) QueryRaw(ctx context.Context, statement string, params ...
 
 // ExecRaw runs an exec statement directly with the driver. No retries are attempted.
 func (w QueryWrapper) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
-	res, err := w.db.ExecContext(ctx, statement, params...)
+	res, err := w.tx.ExecContext(ctx, statement, params...)
 	if err != nil {
 		return nil, &QueryError{
 			cause:     err,

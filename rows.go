@@ -1,6 +1,9 @@
 package sqrlx
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+)
 
 // IRows is the interface of *sql.Rows
 type IRows interface {
@@ -24,7 +27,7 @@ type Row struct {
 
 func (r Row) Scan(into ...interface{}) error {
 	if r.err != nil {
-		return r.err
+		return fmt.Errorf("row held error %w", r.err)
 	}
 	if !r.Rows.Next() {
 		return sql.ErrNoRows
@@ -35,7 +38,10 @@ func (r Row) Scan(into ...interface{}) error {
 }
 
 func (r Row) ScanStruct(into interface{}) error {
-	return ScanStruct(r, into)
+	if err := ScanStruct(r, into); err != nil {
+		return fmt.Errorf("scan struct: %w", err)
+	}
+	return nil
 }
 
 func (r Row) Columns() ([]string, error) {
