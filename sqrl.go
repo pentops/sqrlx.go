@@ -57,6 +57,7 @@ type Transaction interface {
 	Delete(context.Context, *sq.DeleteBuilder) (sql.Result, error)
 
 	QueryRaw(context.Context, string, ...interface{}) (*Rows, error)
+	QueryRowRaw(context.Context, string, ...interface{}) *Row
 	ExecRaw(context.Context, string, ...interface{}) (sql.Result, error)
 
 	Reset(context.Context) error
@@ -313,6 +314,20 @@ func (w QueryWrapper) QueryRaw(ctx context.Context, statement string, params ...
 	return &Rows{
 		IRows: rows,
 	}, nil
+}
+
+// QueryRowRaw returns a single row, otherwise is the same as QueryRaw
+func (w QueryWrapper) QueryRowRaw(ctx context.Context, statement string, params ...interface{}) *Row {
+	rows, err := w.tx.QueryContext(ctx, statement, params...)
+	if err != nil {
+		return &Row{
+			err: err,
+		}
+	}
+
+	return &Row{
+		Rows: rows,
+	}
 }
 
 // ExecRaw runs an exec statement directly with the driver. No retries are attempted.
