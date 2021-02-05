@@ -89,10 +89,20 @@ func New(conn Connection, placeholder sq.PlaceholderFormat) (*Wrapper, error) {
 	}, nil
 }
 
+var DefaultTxOptions = &sql.TxOptions{
+	ReadOnly:  false,
+	Isolation: sql.LevelSerializable,
+}
+
 // Transact calls cb within a transaction. The begin call is retried if
 // required. If cb returns an error, the transaction is rolled back, otherwise
 // it is committed. Failed commits are not retried, and will return an error
 func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(context.Context, Transaction) error) error {
+
+	if opts == nil {
+		opts = DefaultTxOptions
+	}
+
 	var tx *sql.Tx
 	var err error
 	for tries := 0; tries < w.RetryCount; tries++ {
