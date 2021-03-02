@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"runtime/debug"
 
 	sq "github.com/elgris/sqrl"
 )
@@ -97,7 +98,7 @@ var DefaultTxOptions = &sql.TxOptions{
 // Transact calls cb within a transaction. The begin call is retried if
 // required. If cb returns an error, the transaction is rolled back, otherwise
 // it is committed. Failed commits are not retried, and will return an error
-func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(context.Context, Transaction) error) error {
+func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(context.Context, Transaction) error) (returnErr error) {
 
 	if opts == nil {
 		opts = DefaultTxOptions
@@ -123,7 +124,15 @@ func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(cont
 		RetryCount:        w.RetryCount,
 	}
 
-	if err := cb(ctx, txWrapped); err != nil {
+	if err := func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Println("stacktrace from panic: \n" + string(debug.Stack()))
+				err = r.(error)
+			}
+		}()
+		return cb(ctx, txWrapped)
+	}(); err != nil {
 		txWrapped.tx.Rollback()
 		return err
 	}
