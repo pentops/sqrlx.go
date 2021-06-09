@@ -152,85 +152,6 @@ func (w *QueryWrapper) Reset(ctx context.Context) error {
 	return nil
 }
 
-/*
-func (w Wrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Result, error) {
-	var res sql.Result
-	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
-		var err error
-		res, err = tx.Insert(ctx, bb)
-		return wrapInsertError(err)
-	})
-}
-
-func (w Wrapper) InsertStruct(ctx context.Context, table string, ss ...interface{}) (sql.Result, error) {
-	var res sql.Result
-	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
-		var err error
-		res, err = tx.InsertStruct(ctx, table, ss...)
-		return wrapInsertError(err)
-	})
-}
-
-func (w Wrapper) Update(ctx context.Context, bb *sq.UpdateBuilder) (sql.Result, error) {
-	var res sql.Result
-	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
-		var err error
-		res, err = tx.Update(ctx, bb)
-		return err
-	})
-}
-
-func (w Wrapper) Delete(ctx context.Context, bb *sq.DeleteBuilder) (sql.Result, error) {
-	var res sql.Result
-	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
-		var err error
-		res, err = tx.Delete(ctx, bb)
-		return err
-	})
-}
-
-func (w Wrapper) ExecRaw(ctx context.Context, q string, params ...interface{}) (sql.Result, error) {
-	var res sql.Result
-	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
-		var err error
-		res, err = tx.ExecRaw(ctx, q, params...)
-		return err
-	})
-}
-
-func (w Wrapper) Select(ctx context.Context, bb *sq.SelectBuilder) (*Rows, error) {
-	var res *Rows
-	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
-		var err error
-		res, err = tx.Select(ctx, bb)
-		return err
-	})
-}
-
-func (w Wrapper) QueryRaw(ctx context.Context, q string, params ...interface{}) (*Rows, error) {
-	var res *Rows
-	return res, w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
-		var err error
-		res, err = tx.QueryRaw(ctx, q, params...)
-		return err
-	})
-}
-
-func (w Wrapper) SelectRow(ctx context.Context, bb *sq.SelectBuilder) *Row {
-	var res *Row
-	if err := w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
-		res = tx.SelectRow(ctx, bb)
-		return nil
-	}); err != nil {
-		return &Row{
-			err: err,
-		}
-	}
-	return res
-}
-
-*/
-
 func (w QueryWrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Result, error) {
 	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
 	if err != nil {
@@ -238,6 +159,32 @@ func (w QueryWrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Res
 	}
 
 	return w.ExecRaw(ctx, statement, params...)
+}
+
+// InsertRow is like Insert, but calls result RowsEffected, returning true if
+// it is 1, false of 0, or error if > 1
+func (w QueryWrapper) InsertRow(ctx context.Context, bb *sq.InsertBuilder) (bool, error) {
+	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
+	if err != nil {
+		return false, err
+	}
+
+	res, err := w.ExecRaw(ctx, statement, params...)
+	if err != nil {
+		return false, err
+	}
+	count, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	if count == 0 {
+		return false, nil
+	}
+	if count == 1 {
+		return true, nil
+	}
+	return false, fmt.Errorf("%d rows effected by InsertRow", count)
 }
 
 func (w QueryWrapper) InsertStruct(ctx context.Context, tableName string, vals ...interface{}) (sql.Result, error) {

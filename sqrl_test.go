@@ -29,11 +29,14 @@ func TestQuery(t *testing.T) {
 		mock.ExpectQuery("SELECT a FROM b WHERE c = ").
 			WillReturnRows(sqlmock.NewRows([]string{"a"}).AddRow("A"))
 		mock.ExpectCommit()
-		q := sq.Select("a").From("b").Where("c = ?", "hello")
-		_, err := w.Select(ctx, q)
-		if err != nil {
-			t.Fatalf("Got error %s", err.Error())
-		}
+		w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+			q := sq.Select("a").From("b").Where("c = ?", "hello")
+			_, err := tx.Select(ctx, q)
+			if err != nil {
+				t.Fatalf("Got error %s", err.Error())
+			}
+			return nil
+		})
 		if err := mock.ExpectationsWereMet(); err != nil {
 			t.Fatal(err.Error())
 		}
@@ -41,11 +44,14 @@ func TestQuery(t *testing.T) {
 	})
 
 	t.Run("Sq Error", func(t *testing.T) {
-		q := sq.Select()
-		_, err := w.Select(ctx, q)
-		if err == nil {
-			t.Errorf("Expected Error")
-		}
+		w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+			q := sq.Select()
+			_, err := tx.Select(ctx, q)
+			if err == nil {
+				t.Errorf("Expected Error")
+			}
+			return nil
+		})
 	})
 }
 
@@ -69,24 +75,30 @@ func TestQueryRow(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"a"}).AddRow("A"))
 		mock.ExpectCommit()
 
-		q := sq.Select("a").From("b").Where("c = ?", "hello")
-		row := w.SelectRow(ctx, q)
-		if row.err != nil {
-			t.Fatalf("Got error %s", err.Error())
-		}
+		w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+			q := sq.Select("a").From("b").Where("c = ?", "hello")
+			row := tx.SelectRow(ctx, q)
+			if row.err != nil {
+				t.Fatalf("Got error %s", err.Error())
+			}
+			return nil
+		})
 		// Can't actually test row here because of the sql interface.
 	})
 
 	t.Run("Squrl Error", func(t *testing.T) {
 		q := sq.Select()
-		row := w.SelectRow(ctx, q)
-		if row.err == nil {
-			t.Errorf("Expected Error")
-		}
+		w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+			row := tx.SelectRow(ctx, q)
+			if row.err == nil {
+				t.Errorf("Expected Error")
+			}
 
-		if err := row.Scan(nil); err == nil {
-			t.Errorf("Expected Passthrough Error")
-		}
+			if err := row.Scan(nil); err == nil {
+				t.Errorf("Expected Passthrough Error")
+			}
+			return nil
+		})
 	})
 
 	t.Run("Row itself", func(t *testing.T) {
@@ -150,20 +162,26 @@ func TestInsert(t *testing.T) {
 		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO b VALUES ($1)")).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectCommit()
-		q := sq.Insert("b").Values("c")
-		_, err := w.Insert(ctx, q)
-		if err != nil {
-			t.Fatalf("Got error %s", err.Error())
-		}
+		w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+			q := sq.Insert("b").Values("c")
+			_, err := tx.Insert(ctx, q)
+			if err != nil {
+				t.Fatalf("Got error %s", err.Error())
+			}
+			return nil
+		})
 
 	})
 
 	t.Run("Squrl Error", func(t *testing.T) {
 		q := sq.Insert("b")
-		_, err := w.Insert(ctx, q)
-		if err == nil {
-			t.Errorf("Expected Error")
-		}
+		w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+			_, err := tx.Insert(ctx, q)
+			if err == nil {
+				t.Errorf("Expected Error")
+			}
+			return nil
+		})
 	})
 }
 
@@ -187,19 +205,25 @@ func TestUpdate(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(1, 1))
 		mock.ExpectCommit()
 
-		q := sq.Update("b").Set("c", "world")
-		_, err := w.Update(ctx, q)
-		if err != nil {
-			t.Fatalf("Got error %s", err.Error())
-		}
+		w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+			q := sq.Update("b").Set("c", "world")
+			_, err := tx.Update(ctx, q)
+			if err != nil {
+				t.Fatalf("Got error %s", err.Error())
+			}
+			return nil
+		})
 
 	})
 
 	t.Run("Squrl Error", func(t *testing.T) {
 		q := sq.Update("b")
-		_, err := w.Update(ctx, q)
-		if err == nil {
-			t.Errorf("Expected Error")
-		}
+		w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+			_, err := tx.Update(ctx, q)
+			if err == nil {
+				t.Errorf("Expected Error")
+			}
+			return nil
+		})
 	})
 }
