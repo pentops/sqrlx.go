@@ -53,6 +53,7 @@ type Transaction interface {
 	SelectRow(context.Context, *sq.SelectBuilder) *Row
 	Select(context.Context, *sq.SelectBuilder) (*Rows, error)
 	Insert(context.Context, *sq.InsertBuilder) (sql.Result, error)
+	InsertRow(context.Context, *sq.InsertBuilder) (bool, error)
 	InsertStruct(context.Context, string, ...interface{}) (sql.Result, error)
 	Update(context.Context, *sq.UpdateBuilder) (sql.Result, error)
 	Delete(context.Context, *sq.DeleteBuilder) (sql.Result, error)
