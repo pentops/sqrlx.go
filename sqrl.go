@@ -68,8 +68,9 @@ type Transaction interface {
 type Wrapper struct {
 	db Connection
 	//QueryWrapper
-	placeholderFormat sq.PlaceholderFormat
-	RetryCount        int
+	placeholderFormat      sq.PlaceholderFormat
+	RetryCount             int
+	ShouldRetryTransaction func(error) bool
 }
 
 type QueryWrapper struct {
@@ -83,11 +84,31 @@ type QueryWrapper struct {
 
 //var _ Transaction = Wrapper{}
 
+func defaultShouldRetry(err error) bool {
+	var sqlState = ""
+
+	// github.com/lib/pq
+	if getPGCodeErr, ok := err.(interface {
+		Get(byte) string
+	}); ok {
+		sqlState = getPGCodeErr.Get('C')
+	}
+
+	// TODO: Other drivers. Really this should be part of the database/sql library.
+
+	if sqlState == "40001" {
+		// serilaization failure, in the SQL standard
+		return true
+	}
+	return false
+}
+
 func New(conn Connection, placeholder sq.PlaceholderFormat) (*Wrapper, error) {
 	return &Wrapper{
-		db:                conn,
-		placeholderFormat: placeholder,
-		RetryCount:        3,
+		db:                     conn,
+		placeholderFormat:      placeholder,
+		RetryCount:             5,
+		ShouldRetryTransaction: defaultShouldRetry,
 	}, nil
 }
 
@@ -105,39 +126,49 @@ func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(cont
 		opts = DefaultTxOptions
 	}
 
-	var tx *sql.Tx
-	var err error
+	var exitWithError error
+
 	for tries := 0; tries < w.RetryCount; tries++ {
-		tx, err = w.db.BeginTx(ctx, opts)
-		if err == nil {
-			break
+		tx, err := w.db.BeginTx(ctx, opts)
+		if err != nil {
+			exitWithError = err
+			continue
 		}
-	}
-	if err != nil {
-		return err
-	}
 
-	txWrapped := &QueryWrapper{
-		tx:                tx,
-		opts:              opts,
-		connWrapper:       w,
-		placeholderFormat: w.placeholderFormat,
-		RetryCount:        w.RetryCount,
-	}
+		txWrapped := &QueryWrapper{
+			tx:                tx,
+			opts:              opts,
+			connWrapper:       w,
+			placeholderFormat: w.placeholderFormat,
+			RetryCount:        w.RetryCount,
+		}
 
-	if err := func() (err error) {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Println("stacktrace from panic: \n" + string(debug.Stack()))
-				err = r.(error)
+		if err := func() (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("Panic: %s", r)
+					fmt.Println("Recovering TX Panic " + err.Error() + "\n" + string(debug.Stack()))
+				}
+			}()
+			return cb(ctx, txWrapped)
+		}(); err != nil {
+			txWrapped.tx.Rollback()
+			if w.ShouldRetryTransaction != nil {
+				if w.ShouldRetryTransaction(err) {
+					exitWithError = err
+					continue
+				}
 			}
-		}()
-		return cb(ctx, txWrapped)
-	}(); err != nil {
-		txWrapped.tx.Rollback()
-		return err
+			return err
+		}
+
+		if err := txWrapped.tx.Commit(); err != nil {
+			exitWithError = fmt.Errorf("committing transaction: (%d/%d) %w", tries+1, w.RetryCount, err)
+			continue
+		}
+		return nil
 	}
-	return txWrapped.tx.Commit()
+	return exitWithError
 }
 
 func (w *QueryWrapper) Reset(ctx context.Context) error {

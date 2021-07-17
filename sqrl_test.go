@@ -227,3 +227,31 @@ func TestUpdate(t *testing.T) {
 		})
 	})
 }
+
+func TestTxPanic(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	w, err := New(db, sq.Dollar)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	ctx := context.Background()
+
+	err = w.Transact(ctx, nil, func(ctx context.Context, tx Transaction) error {
+		panic("Test Panic")
+	})
+	if err == nil {
+		t.Errorf("Expected an Error")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Error(err.Error())
+	}
+}
