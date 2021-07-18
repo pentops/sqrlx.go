@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"runtime/debug"
-
-	sq "github.com/elgris/sqrl"
 )
 
 // QueryError is thrown by all exec and query commands to wrap the driver error.
@@ -50,25 +48,38 @@ type ColumnType interface {
 }
 
 type Transaction interface {
-	SelectRow(context.Context, *sq.SelectBuilder) *Row
-	Select(context.Context, *sq.SelectBuilder) (*Rows, error)
-	Insert(context.Context, *sq.InsertBuilder) (sql.Result, error)
-	InsertRow(context.Context, *sq.InsertBuilder) (bool, error)
-	InsertStruct(context.Context, string, ...interface{}) (sql.Result, error)
-	Update(context.Context, *sq.UpdateBuilder) (sql.Result, error)
-	Delete(context.Context, *sq.DeleteBuilder) (sql.Result, error)
+	ExecRaw(context.Context, string, ...interface{}) (sql.Result, error)
+	Exec(context.Context, Sqlizer) (sql.Result, error)
 
 	QueryRaw(context.Context, string, ...interface{}) (*Rows, error)
+	Query(context.Context, Sqlizer) (*Rows, error)
+
 	QueryRowRaw(context.Context, string, ...interface{}) *Row
-	ExecRaw(context.Context, string, ...interface{}) (sql.Result, error)
+	QueryRow(context.Context, Sqlizer) *Row
+
+	SelectRow(context.Context, Sqlizer) *Row
+	Select(context.Context, Sqlizer) (*Rows, error)
+	Insert(context.Context, Sqlizer) (sql.Result, error)
+	InsertRow(context.Context, Sqlizer) (bool, error)
+	InsertStruct(context.Context, string, ...interface{}) (sql.Result, error)
+	Update(context.Context, Sqlizer) (sql.Result, error)
+	Delete(context.Context, Sqlizer) (sql.Result, error)
 
 	Reset(context.Context) error
+}
+
+type PlaceholderFormat interface {
+	ReplacePlaceholders(string) (string, error)
+}
+
+type Sqlizer interface {
+	ToSql() (string, []interface{}, error)
 }
 
 type Wrapper struct {
 	db Connection
 	//QueryWrapper
-	placeholderFormat      sq.PlaceholderFormat
+	placeholderFormat      PlaceholderFormat
 	RetryCount             int
 	ShouldRetryTransaction func(error) bool
 }
@@ -77,7 +88,7 @@ type QueryWrapper struct {
 	tx                *sql.Tx
 	opts              *sql.TxOptions
 	connWrapper       Wrapper
-	placeholderFormat sq.PlaceholderFormat
+	placeholderFormat PlaceholderFormat
 	RetryCount        int
 	isTransaction     bool
 }
@@ -103,7 +114,7 @@ func defaultShouldRetry(err error) bool {
 	return false
 }
 
-func New(conn Connection, placeholder sq.PlaceholderFormat) (*Wrapper, error) {
+func New(conn Connection, placeholder PlaceholderFormat) (*Wrapper, error) {
 	return &Wrapper{
 		db:                     conn,
 		placeholderFormat:      placeholder,
@@ -184,27 +195,31 @@ func (w *QueryWrapper) Reset(ctx context.Context) error {
 	return nil
 }
 
-func (w QueryWrapper) Insert(ctx context.Context, bb *sq.InsertBuilder) (sql.Result, error) {
-	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
+func (w QueryWrapper) Exec(ctx context.Context, bb Sqlizer) (sql.Result, error) {
+	statement, params, err := bb.ToSql()
 	if err != nil {
 		return nil, err
 	}
-
+	statement, err = w.placeholderFormat.ReplacePlaceholders(statement)
+	if err != nil {
+		return nil, err
+	}
 	return w.ExecRaw(ctx, statement, params...)
 }
 
-// InsertRow is like Insert, but calls result RowsEffected, returning true if
+// Deprecated: Use Exec
+func (w QueryWrapper) Insert(ctx context.Context, bb Sqlizer) (sql.Result, error) {
+	return w.Exec(ctx, bb)
+}
+
+// InsertRow is like Exec, but calls result RowsEffected, returning true if
 // it is 1, false of 0, or error if > 1
-func (w QueryWrapper) InsertRow(ctx context.Context, bb *sq.InsertBuilder) (bool, error) {
-	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
+func (w QueryWrapper) InsertRow(ctx context.Context, bb Sqlizer) (bool, error) {
+	res, err := w.Exec(ctx, bb)
 	if err != nil {
 		return false, err
 	}
 
-	res, err := w.ExecRaw(ctx, statement, params...)
-	if err != nil {
-		return false, err
-	}
 	count, err := res.RowsAffected()
 	if err != nil {
 		return false, err
@@ -224,36 +239,53 @@ func (w QueryWrapper) InsertStruct(ctx context.Context, tableName string, vals .
 	if err != nil {
 		return nil, err
 	}
-	return w.Insert(ctx, bb)
+	return w.Exec(ctx, bb)
 }
 
-func (w QueryWrapper) Update(ctx context.Context, bb *sq.UpdateBuilder) (sql.Result, error) {
-	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
-	if err != nil {
-		return nil, err
-	}
-
-	return w.tx.ExecContext(ctx, statement, params...)
+// Deprecated: Use Exec()
+func (w QueryWrapper) Update(ctx context.Context, bb Sqlizer) (sql.Result, error) {
+	return w.Exec(ctx, bb)
 }
 
-func (w QueryWrapper) Delete(ctx context.Context, bb *sq.DeleteBuilder) (sql.Result, error) {
-	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
-	if err != nil {
-		return nil, err
-	}
-
-	return w.tx.ExecContext(ctx, statement, params...)
+// Deprecated: Use Exec()
+func (w QueryWrapper) Delete(ctx context.Context, bb Sqlizer) (sql.Result, error) {
+	return w.Exec(ctx, bb)
 }
 
 // Select runs a builder to query, returning Rows. Transient errors will be retried. Do not modify data in a select.
-func (w QueryWrapper) Select(ctx context.Context, bb *sq.SelectBuilder) (*Rows, error) {
-	statement, params, err := bb.PlaceholderFormat(w.placeholderFormat).ToSql()
-
+func (w QueryWrapper) Select(ctx context.Context, bb Sqlizer) (*Rows, error) {
+	statement, params, err := bb.ToSql()
 	if err != nil {
-		fmt.Printf("ERR SELECT %s\n", err.Error())
 		return nil, err
 	}
 
+	statement, err = w.placeholderFormat.ReplacePlaceholders(statement)
+	if err != nil {
+		return nil, err
+	}
+
+	return w.SelectRaw(ctx, statement, params...)
+
+}
+
+// SelectRow returns a single row, otherwise is the same as Select
+func (w QueryWrapper) SelectRow(ctx context.Context, bb Sqlizer) *Row {
+	rows, err := w.Select(ctx, bb)
+	if err != nil {
+		return &Row{
+			err: err,
+		}
+	}
+
+	return &Row{
+		Rows: rows,
+	}
+}
+
+// SelectRaw runs a string + params query, with automatic retry on transient
+// errors. Do not use SELECT queries to modify data.
+func (w QueryWrapper) SelectRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
+	var err error
 	var rows *Rows
 	var firstError error
 	for tries := 0; tries < w.RetryCount; tries++ {
@@ -274,9 +306,26 @@ func (w QueryWrapper) Select(ctx context.Context, bb *sq.SelectBuilder) (*Rows, 
 	return rows, nil
 }
 
-// SelectRow returns a single row, otherwise is the same as Select
-func (w QueryWrapper) SelectRow(ctx context.Context, bb *sq.SelectBuilder) *Row {
-	rows, err := w.Select(ctx, bb)
+// Query runs the statement once, returning any error, it does not retry and so
+// is safe to use for UPDATE RETURNING
+func (w QueryWrapper) Query(ctx context.Context, bb Sqlizer) (*Rows, error) {
+	statement, params, err := bb.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	statement, err = w.placeholderFormat.ReplacePlaceholders(statement)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := w.QueryRaw(ctx, statement, params...)
+	return rows, err
+}
+
+// QueryRow returns a single row, otherwise is the same as Query, it will not retry
+func (w QueryWrapper) QueryRow(ctx context.Context, bb Sqlizer) *Row {
+	rows, err := w.Query(ctx, bb)
 	if err != nil {
 		return &Row{
 			err: err,
@@ -286,19 +335,6 @@ func (w QueryWrapper) SelectRow(ctx context.Context, bb *sq.SelectBuilder) *Row 
 	return &Row{
 		Rows: rows,
 	}
-}
-
-// SelectRaw runs a string + params query, with automatic retry on transient errors
-func (w QueryWrapper) SelectRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
-	var rows *Rows
-	var err error
-	for tries := 0; tries < w.RetryCount; tries++ {
-		rows, err = w.QueryRaw(ctx, statement, params...)
-		if err == nil {
-			break
-		}
-	}
-	return rows, err
 }
 
 // QueryRaw runs a query directly with the driver, returning wrapped rows. It
