@@ -77,23 +77,29 @@ type Sqlizer interface {
 }
 
 type Wrapper struct {
-	db Connection
-	//QueryWrapper
-	placeholderFormat      PlaceholderFormat
-	RetryCount             int
+	db                Connection
+	placeholderFormat PlaceholderFormat
+
+	// Max number of retries in acquiring transactions, or retrying due to
+	// transient or transaction conflict errors.
+	RetryCount int
+
+	// Called when a transaction callback returns an error, if true, will retry
+	// the callback when ShouldRetryTransaction is also true.
+	// Note this does not effect errors on the Begin() and Commit() calls.
 	ShouldRetryTransaction func(error) bool
+
+	DefaultTxOptions *TxOptions
 }
 
 type QueryWrapper struct {
 	tx                *sql.Tx
-	opts              *sql.TxOptions
+	opts              *TxOptions
 	connWrapper       Wrapper
 	placeholderFormat PlaceholderFormat
 	RetryCount        int
 	isTransaction     bool
 }
-
-//var _ Transaction = Wrapper{}
 
 func defaultShouldRetry(err error) bool {
 	var sqlState = ""
@@ -120,38 +126,49 @@ func New(conn Connection, placeholder PlaceholderFormat) (*Wrapper, error) {
 		placeholderFormat:      placeholder,
 		RetryCount:             5,
 		ShouldRetryTransaction: defaultShouldRetry,
+		DefaultTxOptions: &TxOptions{
+			ReadOnly:  false,
+			Isolation: sql.LevelSerializable,
+		},
 	}, nil
 }
 
-var DefaultTxOptions = &sql.TxOptions{
-	ReadOnly:  false,
-	Isolation: sql.LevelSerializable,
+type TxOptions struct {
+	Isolation sql.IsolationLevel
+	ReadOnly  bool
+
+	// Transaction callback will be called more than once to retry some errors.
+	// Errors which will result in retries are any error on the transaction
+	// Commit() call, or any errors returned from the callback for which
+	// `wrapper.ShouldRetryTransaction` returns true
+	//
+	// Errors from the Begin() call will always retry up to `wrapper.RetryCount`
+	Retryable bool
 }
 
 // Transact calls cb within a transaction. The begin call is retried if
 // required. If cb returns an error, the transaction is rolled back, otherwise
 // it is committed. Failed commits are not retried, and will return an error
-func (w Wrapper) Transact(ctx context.Context, opts *sql.TxOptions, cb func(context.Context, Transaction) error) (returnErr error) {
+func (w Wrapper) Transact(ctx context.Context, opts *TxOptions, cb func(context.Context, Transaction) error) (returnErr error) {
 
 	if opts == nil {
-		opts = DefaultTxOptions
+		opts = w.DefaultTxOptions
 	}
 
 	var exitWithError error
 
 	for tries := 0; tries < w.RetryCount; tries++ {
-		tx, err := w.db.BeginTx(ctx, opts)
-		if err != nil {
-			exitWithError = err
-			continue
-		}
 
 		txWrapped := &QueryWrapper{
-			tx:                tx,
 			opts:              opts,
 			connWrapper:       w,
 			placeholderFormat: w.placeholderFormat,
 			RetryCount:        w.RetryCount,
+		}
+
+		if err := txWrapped.begin(ctx); err != nil {
+			exitWithError = err
+			continue
 		}
 
 		if err := func() (err error) {
@@ -186,11 +203,18 @@ func (w *QueryWrapper) Reset(ctx context.Context) error {
 	if err := w.tx.Rollback(); err != nil {
 		return err
 	}
-	newTx, err := w.connWrapper.db.BeginTx(ctx, w.opts)
+	return w.begin(ctx)
+}
+
+func (w *QueryWrapper) begin(ctx context.Context) error {
+	tx, err := w.connWrapper.db.BeginTx(ctx, &sql.TxOptions{
+		ReadOnly:  w.opts.ReadOnly,
+		Isolation: w.opts.Isolation,
+	})
 	if err != nil {
 		return err
 	}
-	w.tx = newTx
+	w.tx = tx
 	// rollback or commit happen after the callback returns in the initial Transact call
 	return nil
 }
@@ -323,7 +347,7 @@ func (w QueryWrapper) Query(ctx context.Context, bb Sqlizer) (*Rows, error) {
 	return rows, err
 }
 
-// QueryRow returns a single row, otherwise is the same as Query, it will not retry
+// QueryRow returns a single row, otherwise is the same as Query. No retries are attempted.
 func (w QueryWrapper) QueryRow(ctx context.Context, bb Sqlizer) *Row {
 	rows, err := w.Query(ctx, bb)
 	if err != nil {
@@ -338,7 +362,7 @@ func (w QueryWrapper) QueryRow(ctx context.Context, bb Sqlizer) *Row {
 }
 
 // QueryRaw runs a query directly with the driver, returning wrapped rows. It
-// will not attempt to retry. Use SelectRaw for automatic retries
+// will not attempt to retry. No retries are attempted, Use SelectRaw for automatic retries
 func (w QueryWrapper) QueryRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
 	rows, err := w.tx.QueryContext(ctx, statement, params...)
 	if err != nil {
@@ -350,7 +374,8 @@ func (w QueryWrapper) QueryRaw(ctx context.Context, statement string, params ...
 	}, nil
 }
 
-// QueryRowRaw returns a single row, otherwise is the same as QueryRaw
+// QueryRowRaw returns a single row, otherwise is the same as QueryRaw. No
+// Retries are attempted, use SelectRowRaw for automatic retries
 func (w QueryWrapper) QueryRowRaw(ctx context.Context, statement string, params ...interface{}) *Row {
 	rows, err := w.tx.QueryContext(ctx, statement, params...)
 	if err != nil {
