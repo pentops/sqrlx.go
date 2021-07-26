@@ -25,6 +25,18 @@ type Row struct {
 	err  error
 }
 
+func rowFromRes(rows *Rows, err error) *Row {
+	if err != nil {
+		return &Row{
+			err: err,
+		}
+	}
+
+	return &Row{
+		Rows: rows,
+	}
+}
+
 func (r Row) Scan(into ...interface{}) error {
 	if r.err != nil {
 		return fmt.Errorf("row held error %w", r.err)

@@ -66,6 +66,8 @@ type Transaction interface {
 	Delete(context.Context, Sqlizer) (sql.Result, error)
 
 	Reset(context.Context) error
+
+	PrepareRaw(context.Context, string) (*sql.Stmt, error)
 }
 
 type PlaceholderFormat interface {
@@ -219,6 +221,10 @@ func (w *QueryWrapper) begin(ctx context.Context) error {
 	return nil
 }
 
+func (w QueryWrapper) PrepareRaw(ctx context.Context, str string) (*sql.Stmt, error) {
+	return w.tx.PrepareContext(ctx, str)
+}
+
 func (w QueryWrapper) Exec(ctx context.Context, bb Sqlizer) (sql.Result, error) {
 	statement, params, err := bb.ToSql()
 	if err != nil {
@@ -294,16 +300,7 @@ func (w QueryWrapper) Select(ctx context.Context, bb Sqlizer) (*Rows, error) {
 
 // SelectRow returns a single row, otherwise is the same as Select
 func (w QueryWrapper) SelectRow(ctx context.Context, bb Sqlizer) *Row {
-	rows, err := w.Select(ctx, bb)
-	if err != nil {
-		return &Row{
-			err: err,
-		}
-	}
-
-	return &Row{
-		Rows: rows,
-	}
+	return rowFromRes(w.Select(ctx, bb))
 }
 
 // SelectRaw runs a string + params query, with automatic retry on transient
@@ -349,16 +346,7 @@ func (w QueryWrapper) Query(ctx context.Context, bb Sqlizer) (*Rows, error) {
 
 // QueryRow returns a single row, otherwise is the same as Query. No retries are attempted.
 func (w QueryWrapper) QueryRow(ctx context.Context, bb Sqlizer) *Row {
-	rows, err := w.Query(ctx, bb)
-	if err != nil {
-		return &Row{
-			err: err,
-		}
-	}
-
-	return &Row{
-		Rows: rows,
-	}
+	return rowFromRes(w.Query(ctx, bb))
 }
 
 // QueryRaw runs a query directly with the driver, returning wrapped rows. It
@@ -377,16 +365,7 @@ func (w QueryWrapper) QueryRaw(ctx context.Context, statement string, params ...
 // QueryRowRaw returns a single row, otherwise is the same as QueryRaw. No
 // Retries are attempted, use SelectRowRaw for automatic retries
 func (w QueryWrapper) QueryRowRaw(ctx context.Context, statement string, params ...interface{}) *Row {
-	rows, err := w.tx.QueryContext(ctx, statement, params...)
-	if err != nil {
-		return &Row{
-			err: err,
-		}
-	}
-
-	return &Row{
-		Rows: rows,
-	}
+	return rowFromRes(w.QueryRaw(ctx, statement, params...))
 }
 
 // ExecRaw runs an exec statement directly with the driver. No retries are attempted.
