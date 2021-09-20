@@ -214,7 +214,7 @@ func (w *QueryWrapper) begin(ctx context.Context) error {
 		Isolation: w.opts.Isolation,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("beginning transaction: %w", err)
 	}
 	w.tx = tx
 	// rollback or commit happen after the callback returns in the initial Transact call
