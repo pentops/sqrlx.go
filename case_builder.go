@@ -9,7 +9,7 @@ type CaseSumBuilder struct {
 }
 
 func (cs CaseSumBuilder) ToSql() (string, []interface{}, error) {
-	return fmt.Sprintf(`SUM(CASE WHEN %s THEN COALESCE(%s,0) ELSE 0 END)`,
+	return fmt.Sprintf(`COALESCE(SUM(CASE WHEN %s THEN COALESCE(%s,0) ELSE 0 END), 0)`,
 		cs.Condition,
 		cs.Target,
 	), cs.Args, nil
