@@ -35,7 +35,7 @@ func (te testError) Error() string {
 	return string(te)
 }
 
-func testTransaction(t *testing.T) (*QueryWrapper, sqlmock.Sqlmock) {
+func testTransaction(t *testing.T, retryCount int) (Transaction, sqlmock.Sqlmock) {
 	t.Helper()
 
 	db, mock, err := sqlmock.New()
@@ -48,20 +48,27 @@ func testTransaction(t *testing.T) (*QueryWrapper, sqlmock.Sqlmock) {
 		t.Fatal(err.Error())
 	}
 
-	txWrapped := &QueryWrapper{
+	txWrapped := &txWrapper{
 		tx: tx,
 		//opts: opts,
 		//connWrapper:       w,
-		placeholderFormat: testPlaceholder{},
-		RetryCount:        1,
+		PlaceholderFormat: testPlaceholder{},
+		RetryCount:        retryCount,
 	}
 
-	return txWrapped, mock
+	commander := &commandWrapper{
+		rawCommander: txWrapped,
+	}
+
+	return Tx{
+		Commander: commander,
+		TxExtras:  txWrapped,
+	}, mock
 }
 
 func TestQueryHappy(t *testing.T) {
 	ctx := context.Background()
-	tx, mock := testTransaction(t)
+	tx, mock := testTransaction(t, 1)
 
 	mock.ExpectQuery("SELECT a FROM b WHERE c = !").
 		WillReturnRows(sqlmock.NewRows([]string{"a"}).AddRow("A"))
@@ -84,7 +91,7 @@ func TestQueryHappy(t *testing.T) {
 
 func TestQueryError(t *testing.T) {
 	ctx := context.Background()
-	tx, _ := testTransaction(t)
+	tx, _ := testTransaction(t, 1)
 
 	q := testSqlizer{
 		err: testError("TEST"),
@@ -100,7 +107,7 @@ func TestQueryError(t *testing.T) {
 
 func TestQueryRowHappy(t *testing.T) {
 	ctx := context.Background()
-	tx, mock := testTransaction(t)
+	tx, mock := testTransaction(t, 1)
 
 	mock.ExpectQuery("SELECT a FROM b WHERE c = !").
 		WillReturnRows(sqlmock.NewRows([]string{"a"}).AddRow("A"))
@@ -123,7 +130,7 @@ func TestQueryRowHappy(t *testing.T) {
 
 func TestQueryRowStatementError(t *testing.T) {
 	ctx := context.Background()
-	tx, _ := testTransaction(t)
+	tx, _ := testTransaction(t, 1)
 
 	q := testSqlizer{
 		err: testError("TEST"),
@@ -141,8 +148,7 @@ func TestQueryRowStatementError(t *testing.T) {
 func TestSelectRetry(t *testing.T) {
 
 	ctx := context.Background()
-	tx, mock := testTransaction(t)
-	tx.RetryCount = 4
+	tx, mock := testTransaction(t, 4)
 
 	var err1 = testError("1")
 	var err2 = testError("2")
@@ -216,7 +222,7 @@ func (m MockResult) RowsAffected() (int64, error) {
 func TestExecHappy(t *testing.T) {
 
 	ctx := context.Background()
-	tx, mock := testTransaction(t)
+	tx, mock := testTransaction(t, 1)
 
 	q := testSqlizer{
 		str:  "INSERT INTO b VALUES (?)",
@@ -250,7 +256,7 @@ func TestInsertRowChanged(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%d", tc.count), func(t *testing.T) {
 			ctx := context.Background()
-			tx, mock := testTransaction(t)
+			tx, mock := testTransaction(t, 1)
 
 			q := testSqlizer{
 				str:  "INSERT INTO b VALUES (?)",
@@ -286,7 +292,7 @@ func TestInsertRowChanged(t *testing.T) {
 
 func TestExecStatementError(t *testing.T) {
 	ctx := context.Background()
-	tx, _ := testTransaction(t)
+	tx, _ := testTransaction(t, 1)
 
 	q := testSqlizer{
 		err: testError("TEST"),
@@ -302,7 +308,7 @@ func TestExecStatementError(t *testing.T) {
 
 func TestExecServerError(t *testing.T) {
 	ctx := context.Background()
-	tx, mock := testTransaction(t)
+	tx, mock := testTransaction(t, 1)
 
 	q := testSqlizer{
 		str:  "INSERT INTO b VALUES (?)",

@@ -25,15 +25,10 @@ func (err QueryError) Error() string {
 	return err.cause.Error() + " `" + err.Statement + "` "
 }
 
-// Queryer runs database queries
-type Queryer interface {
-	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
-	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
-}
-
 // Connection is Queryer + Begin
 type Connection interface {
-	Queryer
+	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
+	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
 	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
 }
 
@@ -47,7 +42,8 @@ type ColumnType interface {
 	ScanType() reflect.Type
 }
 
-type Transaction interface {
+// Commander runs database queries
+type Commander interface {
 	ExecRaw(context.Context, string, ...interface{}) (sql.Result, error)
 	Exec(context.Context, Sqlizer) (sql.Result, error)
 
@@ -64,9 +60,16 @@ type Transaction interface {
 	InsertStruct(context.Context, string, ...interface{}) (sql.Result, error)
 	Update(context.Context, Sqlizer) (sql.Result, error)
 	Delete(context.Context, Sqlizer) (sql.Result, error)
+}
 
+type Transaction interface {
+	Commander
+	TxExtras
+}
+
+// TxExtras groups methods which can only be run inside of a transaction
+type TxExtras interface {
 	Reset(context.Context) error
-
 	PrepareRaw(context.Context, string) (*sql.Stmt, error)
 }
 
@@ -94,13 +97,9 @@ type Wrapper struct {
 	DefaultTxOptions *TxOptions
 }
 
-type QueryWrapper struct {
-	tx                *sql.Tx
-	opts              *TxOptions
-	connWrapper       Wrapper
-	placeholderFormat PlaceholderFormat
-	RetryCount        int
-	isTransaction     bool
+type WrapperCommander struct {
+	*Wrapper
+	Commander
 }
 
 func defaultShouldRetry(err error) bool {
@@ -135,6 +134,27 @@ func New(conn Connection, placeholder PlaceholderFormat) (*Wrapper, error) {
 	}, nil
 }
 
+func NewWithCommander(conn Connection, placeholder PlaceholderFormat) (*WrapperCommander, error) {
+	ww := &Wrapper{
+		db:                     conn,
+		placeholderFormat:      placeholder,
+		RetryCount:             5,
+		ShouldRetryTransaction: defaultShouldRetry,
+		DefaultTxOptions: &TxOptions{
+			ReadOnly:  false,
+			Isolation: sql.LevelSerializable,
+		},
+	}
+	commander := &commandWrapper{
+		rawCommander: rawDirect{db: conn, PlaceholderFormat: placeholder},
+	}
+
+	return &WrapperCommander{
+		Wrapper:   ww,
+		Commander: commander,
+	}, nil
+}
+
 type TxOptions struct {
 	Isolation sql.IsolationLevel
 	ReadOnly  bool
@@ -146,6 +166,13 @@ type TxOptions struct {
 	//
 	// Errors from the Begin() call will always retry up to `wrapper.RetryCount`
 	Retryable bool
+}
+
+type rawCommander interface {
+	QueryRaw(context.Context, string, ...interface{}) (*Rows, error)
+	ExecRaw(context.Context, string, ...interface{}) (sql.Result, error)
+	SelectRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error)
+	PlaceholderFormat
 }
 
 // Transact calls cb within a transaction. The begin call is retried if
@@ -161,11 +188,15 @@ func (w Wrapper) Transact(ctx context.Context, opts *TxOptions, cb func(context.
 
 	for tries := 0; tries < w.RetryCount; tries++ {
 
-		txWrapped := &QueryWrapper{
+		txWrapped := &txWrapper{
 			opts:              opts,
 			connWrapper:       w,
-			placeholderFormat: w.placeholderFormat,
+			PlaceholderFormat: w.placeholderFormat,
 			RetryCount:        w.RetryCount,
+		}
+
+		commander := &commandWrapper{
+			rawCommander: txWrapped,
 		}
 
 		if err := txWrapped.begin(ctx); err != nil {
@@ -180,7 +211,10 @@ func (w Wrapper) Transact(ctx context.Context, opts *TxOptions, cb func(context.
 					fmt.Println("Recovering TX Panic " + err.Error() + "\n" + string(debug.Stack()))
 				}
 			}()
-			return cb(ctx, txWrapped)
+			return cb(ctx, Tx{
+				Commander: commander,
+				TxExtras:  txWrapped,
+			})
 		}(); err != nil {
 			txWrapped.tx.Rollback()
 			if w.ShouldRetryTransaction != nil {
@@ -201,14 +235,28 @@ func (w Wrapper) Transact(ctx context.Context, opts *TxOptions, cb func(context.
 	return exitWithError
 }
 
-func (w *QueryWrapper) Reset(ctx context.Context) error {
+type Tx struct {
+	Commander
+	TxExtras
+}
+
+type txWrapper struct {
+	tx          *sql.Tx
+	opts        *TxOptions
+	connWrapper Wrapper
+	PlaceholderFormat
+	RetryCount    int
+	isTransaction bool
+}
+
+func (w *txWrapper) Reset(ctx context.Context) error {
 	if err := w.tx.Rollback(); err != nil {
 		return err
 	}
 	return w.begin(ctx)
 }
 
-func (w *QueryWrapper) begin(ctx context.Context) error {
+func (w *txWrapper) begin(ctx context.Context) error {
 	tx, err := w.connWrapper.db.BeginTx(ctx, &sql.TxOptions{
 		ReadOnly:  w.opts.ReadOnly,
 		Isolation: w.opts.Isolation,
@@ -221,91 +269,13 @@ func (w *QueryWrapper) begin(ctx context.Context) error {
 	return nil
 }
 
-func (w QueryWrapper) PrepareRaw(ctx context.Context, str string) (*sql.Stmt, error) {
+func (w txWrapper) PrepareRaw(ctx context.Context, str string) (*sql.Stmt, error) {
 	return w.tx.PrepareContext(ctx, str)
-}
-
-func (w QueryWrapper) Exec(ctx context.Context, bb Sqlizer) (sql.Result, error) {
-	statement, params, err := bb.ToSql()
-	if err != nil {
-		return nil, err
-	}
-	statement, err = w.placeholderFormat.ReplacePlaceholders(statement)
-	if err != nil {
-		return nil, err
-	}
-	return w.ExecRaw(ctx, statement, params...)
-}
-
-// Deprecated: Use Exec
-func (w QueryWrapper) Insert(ctx context.Context, bb Sqlizer) (sql.Result, error) {
-	return w.Exec(ctx, bb)
-}
-
-// InsertRow is like Exec, but calls result RowsEffected, returning true if
-// it is 1, false of 0, or error if > 1
-func (w QueryWrapper) InsertRow(ctx context.Context, bb Sqlizer) (bool, error) {
-	res, err := w.Exec(ctx, bb)
-	if err != nil {
-		return false, err
-	}
-
-	count, err := res.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-
-	if count == 0 {
-		return false, nil
-	}
-	if count == 1 {
-		return true, nil
-	}
-	return false, fmt.Errorf("%d rows effected by InsertRow", count)
-}
-
-func (w QueryWrapper) InsertStruct(ctx context.Context, tableName string, vals ...interface{}) (sql.Result, error) {
-	bb, err := InsertStruct(tableName, vals...)
-	if err != nil {
-		return nil, err
-	}
-	return w.Exec(ctx, bb)
-}
-
-// Deprecated: Use Exec()
-func (w QueryWrapper) Update(ctx context.Context, bb Sqlizer) (sql.Result, error) {
-	return w.Exec(ctx, bb)
-}
-
-// Deprecated: Use Exec()
-func (w QueryWrapper) Delete(ctx context.Context, bb Sqlizer) (sql.Result, error) {
-	return w.Exec(ctx, bb)
-}
-
-// Select runs a builder to query, returning Rows. Transient errors will be retried. Do not modify data in a select.
-func (w QueryWrapper) Select(ctx context.Context, bb Sqlizer) (*Rows, error) {
-	statement, params, err := bb.ToSql()
-	if err != nil {
-		return nil, err
-	}
-
-	statement, err = w.placeholderFormat.ReplacePlaceholders(statement)
-	if err != nil {
-		return nil, err
-	}
-
-	return w.SelectRaw(ctx, statement, params...)
-
-}
-
-// SelectRow returns a single row, otherwise is the same as Select
-func (w QueryWrapper) SelectRow(ctx context.Context, bb Sqlizer) *Row {
-	return rowFromRes(w.Select(ctx, bb))
 }
 
 // SelectRaw runs a string + params query, with automatic retry on transient
 // errors. Do not use SELECT queries to modify data.
-func (w QueryWrapper) SelectRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
+func (w txWrapper) SelectRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
 	var err error
 	var rows *Rows
 	var firstError error
@@ -327,31 +297,9 @@ func (w QueryWrapper) SelectRaw(ctx context.Context, statement string, params ..
 	return rows, nil
 }
 
-// Query runs the statement once, returning any error, it does not retry and so
-// is safe to use for UPDATE RETURNING
-func (w QueryWrapper) Query(ctx context.Context, bb Sqlizer) (*Rows, error) {
-	statement, params, err := bb.ToSql()
-	if err != nil {
-		return nil, err
-	}
-
-	statement, err = w.placeholderFormat.ReplacePlaceholders(statement)
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := w.QueryRaw(ctx, statement, params...)
-	return rows, err
-}
-
-// QueryRow returns a single row, otherwise is the same as Query. No retries are attempted.
-func (w QueryWrapper) QueryRow(ctx context.Context, bb Sqlizer) *Row {
-	return rowFromRes(w.Query(ctx, bb))
-}
-
 // QueryRaw runs a query directly with the driver, returning wrapped rows. It
 // will not attempt to retry. No retries are attempted, Use SelectRaw for automatic retries
-func (w QueryWrapper) QueryRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
+func (w txWrapper) QueryRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
 	rows, err := w.tx.QueryContext(ctx, statement, params...)
 	if err != nil {
 		return nil, err
@@ -362,14 +310,8 @@ func (w QueryWrapper) QueryRaw(ctx context.Context, statement string, params ...
 	}, nil
 }
 
-// QueryRowRaw returns a single row, otherwise is the same as QueryRaw. No
-// Retries are attempted, use SelectRowRaw for automatic retries
-func (w QueryWrapper) QueryRowRaw(ctx context.Context, statement string, params ...interface{}) *Row {
-	return rowFromRes(w.QueryRaw(ctx, statement, params...))
-}
-
 // ExecRaw runs an exec statement directly with the driver. No retries are attempted.
-func (w QueryWrapper) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
+func (w txWrapper) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
 	res, err := w.tx.ExecContext(ctx, statement, params...)
 	if err != nil {
 		return nil, &QueryError{
@@ -378,4 +320,150 @@ func (w QueryWrapper) ExecRaw(ctx context.Context, statement string, params ...i
 		}
 	}
 	return res, nil
+}
+
+type rawDirect struct {
+	db Connection
+	PlaceholderFormat
+}
+
+// SelectRaw runs a string + params query
+func (w rawDirect) SelectRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
+	return w.QueryRaw(ctx, statement, params...)
+}
+
+// QueryRaw runs a query directly with the driver, returning wrapped rows. It
+// will not attempt to retry. No retries are attempted, Use SelectRaw for automatic retries
+func (w rawDirect) QueryRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
+	rows, err := w.db.QueryContext(ctx, statement, params...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Rows{
+		IRows: rows,
+	}, nil
+}
+
+// ExecRaw runs an exec statement directly with the driver. No retries are attempted.
+func (w rawDirect) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
+	res, err := w.db.ExecContext(ctx, statement, params...)
+	if err != nil {
+		return nil, &QueryError{
+			cause:     err,
+			Statement: statement,
+		}
+	}
+	return res, nil
+}
+
+// commandWrapper extends a rawCommander with SQ funcs and single row returns.
+type commandWrapper struct {
+	rawCommander
+}
+
+func (w commandWrapper) Exec(ctx context.Context, bb Sqlizer) (sql.Result, error) {
+	statement, params, err := bb.ToSql()
+	if err != nil {
+		return nil, err
+	}
+	statement, err = w.rawCommander.ReplacePlaceholders(statement)
+	if err != nil {
+		return nil, err
+	}
+	return w.rawCommander.ExecRaw(ctx, statement, params...)
+}
+
+// Deprecated: Use Exec
+func (w commandWrapper) Insert(ctx context.Context, bb Sqlizer) (sql.Result, error) {
+	return w.Exec(ctx, bb)
+}
+
+// InsertRow is like Exec, but calls result RowsEffected, returning true if
+// it is 1, false of 0, or error if > 1
+func (w commandWrapper) InsertRow(ctx context.Context, bb Sqlizer) (bool, error) {
+	res, err := w.Exec(ctx, bb)
+	if err != nil {
+		return false, err
+	}
+
+	count, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	if count == 0 {
+		return false, nil
+	}
+	if count == 1 {
+		return true, nil
+	}
+	return false, fmt.Errorf("%d rows effected by InsertRow", count)
+}
+
+func (w commandWrapper) InsertStruct(ctx context.Context, tableName string, vals ...interface{}) (sql.Result, error) {
+	bb, err := InsertStruct(tableName, vals...)
+	if err != nil {
+		return nil, err
+	}
+	return w.Exec(ctx, bb)
+}
+
+// Deprecated: Use Exec()
+func (w commandWrapper) Update(ctx context.Context, bb Sqlizer) (sql.Result, error) {
+	return w.Exec(ctx, bb)
+}
+
+// Deprecated: Use Exec()
+func (w commandWrapper) Delete(ctx context.Context, bb Sqlizer) (sql.Result, error) {
+	return w.Exec(ctx, bb)
+}
+
+// Select runs a builder to query, returning Rows. Transient errors will be retried. Do not modify data in a select.
+func (w commandWrapper) Select(ctx context.Context, bb Sqlizer) (*Rows, error) {
+	statement, params, err := bb.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	statement, err = w.rawCommander.ReplacePlaceholders(statement)
+	if err != nil {
+		return nil, err
+	}
+
+	return w.rawCommander.SelectRaw(ctx, statement, params...)
+
+}
+
+// SelectRow returns a single row, otherwise is the same as Select
+func (w commandWrapper) SelectRow(ctx context.Context, bb Sqlizer) *Row {
+	return rowFromRes(w.Select(ctx, bb))
+}
+
+// Query runs the statement once, returning any error, it does not retry and so
+// is safe to use for UPDATE RETURNING
+func (w commandWrapper) Query(ctx context.Context, bb Sqlizer) (*Rows, error) {
+	statement, params, err := bb.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	statement, err = w.rawCommander.ReplacePlaceholders(statement)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := w.rawCommander.QueryRaw(ctx, statement, params...)
+	return rows, err
+}
+
+// QueryRow returns a single row, otherwise is the same as Query. No retries are attempted.
+func (w commandWrapper) QueryRow(ctx context.Context, bb Sqlizer) *Row {
+	return rowFromRes(w.Query(ctx, bb))
+}
+
+// QueryRowRaw returns a single row, otherwise is the same as QueryRaw. No
+// Retries are attempted, use SelectRowRaw for automatic retries
+func (w commandWrapper) QueryRowRaw(ctx context.Context, statement string, params ...interface{}) *Row {
+	return rowFromRes(w.rawCommander.QueryRaw(ctx, statement, params...))
 }
