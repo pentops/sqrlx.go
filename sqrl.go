@@ -175,10 +175,12 @@ type rawCommander interface {
 	PlaceholderFormat
 }
 
+type Callback func(context.Context, Transaction) error
+
 // Transact calls cb within a transaction. The begin call is retried if
 // required. If cb returns an error, the transaction is rolled back, otherwise
 // it is committed. Failed commits are not retried, and will return an error
-func (w Wrapper) Transact(ctx context.Context, opts *TxOptions, cb func(context.Context, Transaction) error) (returnErr error) {
+func (w Wrapper) Transact(ctx context.Context, opts *TxOptions, cb Callback) (returnErr error) {
 
 	if opts == nil {
 		opts = w.DefaultTxOptions
