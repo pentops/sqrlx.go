@@ -28,6 +28,26 @@ func CaseSum(target, condition string, args ...interface{}) *CaseSumBuilder {
 	}
 }
 
+type withSuffix struct {
+	expr   sqrl.Sqlizer
+	suffix string
+}
+
+func Suffix(expr sqrl.Sqlizer, suffix string) sqrl.Sqlizer {
+	return &withSuffix{
+		expr:   expr,
+		suffix: suffix,
+	}
+}
+
+func (ws withSuffix) ToSql() (string, []interface{}, error) {
+	sql, args, err := ws.expr.ToSql()
+	if err != nil {
+		return sql, args, err
+	}
+	return sql + ws.suffix, args, err
+}
+
 type fieldPair struct {
 	column string
 	value  interface{}
