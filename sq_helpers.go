@@ -28,6 +28,28 @@ func CaseSum(target, condition string, args ...interface{}) *CaseSumBuilder {
 	}
 }
 
+type Join []sqrl.Sqlizer
+
+func (parts Join) ToSql() (sql string, args []interface{}, err error) {
+	// taken from sqrl's conj.join private function
+
+	var sqlParts []string
+	for _, sqlizer := range parts {
+		partSql, partArgs, err := sqlizer.ToSql()
+		if err != nil {
+			return "", nil, err
+		}
+		if partSql != "" {
+			sqlParts = append(sqlParts, partSql)
+			args = append(args, partArgs...)
+		}
+	}
+	if len(sqlParts) > 0 {
+		sql = fmt.Sprintf("(%s)", strings.Join(sqlParts, ""))
+	}
+	return
+}
+
 type fieldPair struct {
 	column string
 	value  interface{}
