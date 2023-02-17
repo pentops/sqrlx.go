@@ -38,15 +38,23 @@ func rowFromRes(rows *Rows, err error) *Row {
 }
 
 func (r Row) Scan(into ...interface{}) error {
+	// partial clone of sql.Row.Scan, but skipping the safety for the RawBytes issue
 	if r.err != nil {
 		return fmt.Errorf("row held error %w", r.err)
 	}
+
+	defer r.Rows.Close()
 	if !r.Rows.Next() {
+		if err := r.Rows.Err(); err != nil {
+			return err
+		}
+
 		return sql.ErrNoRows
 	}
-	defer r.Rows.Close()
-
-	return r.Rows.Scan(into...)
+	if err := r.Rows.Scan(into...); err != nil {
+		return err
+	}
+	return r.Rows.Close()
 }
 
 func (r Row) ScanStruct(into interface{}) error {
