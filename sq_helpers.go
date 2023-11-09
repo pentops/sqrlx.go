@@ -141,6 +141,13 @@ func (u *UpsertBuilder) Key(column string, value interface{}) *UpsertBuilder {
 	return u
 }
 
+func (u *UpsertBuilder) KeyMap(keys map[string]interface{}) *UpsertBuilder {
+	for k, v := range keys {
+		u.Key(k, v)
+	}
+	return u
+}
+
 func (u *UpsertBuilder) Set(column string, value interface{}) *UpsertBuilder {
 	u.vals = append(u.vals, fieldPair{
 		column: column,
