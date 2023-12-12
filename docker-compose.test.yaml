@@ -1,0 +1,11 @@
+version: '2.4'
+
+services:
+  test:
+    image: golang:1.21
+    volumes:
+      - ".:/src"
+    environment:
+      TEST_DB: "postgres://test:test@database/test?sslmode=disable"
+    working_dir: "/src"
+    command: "go test ./..."

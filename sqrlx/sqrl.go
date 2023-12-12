@@ -218,7 +218,11 @@ func (w Wrapper) Transact(ctx context.Context, opts *TxOptions, cb Callback) (re
 				TxExtras:  txWrapped,
 			})
 		}(); err != nil {
-			txWrapped.tx.Rollback()
+			if err := txWrapped.tx.Rollback(); err != nil {
+				// Retry will be a mess
+				return fmt.Errorf("rolling back transaction: %w", err)
+			}
+
 			if w.ShouldRetryTransaction != nil {
 				if w.ShouldRetryTransaction(err) {
 					exitWithError = err
@@ -302,7 +306,7 @@ func (w txWrapper) SelectRaw(ctx context.Context, statement string, params ...in
 // QueryRaw runs a query directly with the driver, returning wrapped rows. It
 // will not attempt to retry. No retries are attempted, Use SelectRaw for automatic retries
 func (w txWrapper) QueryRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
-	rows, err := w.tx.QueryContext(ctx, statement, params...)
+	rows, err := w.tx.QueryContext(ctx, statement, params...) // nolint rowserrcheck
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +341,7 @@ func (w rawDirect) SelectRaw(ctx context.Context, statement string, params ...in
 // QueryRaw runs a query directly with the driver, returning wrapped rows. It
 // will not attempt to retry. No retries are attempted, Use SelectRaw for automatic retries
 func (w rawDirect) QueryRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
-	rows, err := w.db.QueryContext(ctx, statement, params...)
+	rows, err := w.db.QueryContext(ctx, statement, params...) // nolint rowserrcheck
 	if err != nil {
 		return nil, err
 	}

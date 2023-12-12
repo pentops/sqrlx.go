@@ -79,7 +79,6 @@ func (b UpsertBuilder) ToSql() (sqlStr string, args []interface{}, err error) {
 	}
 
 	keyList := make([]string, 0, len(b.keys))
-	valList := make([]string, 0, len(b.vals))
 
 	columns := make([]string, 0, len(b.keys)+len(b.vals))
 	values := make([]interface{}, 0, len(columns))
@@ -90,6 +89,7 @@ func (b UpsertBuilder) ToSql() (sqlStr string, args []interface{}, err error) {
 	for _, key := range b.keys {
 		if _, ok := setMap[key.column]; ok {
 			err = fmt.Errorf("duplicate column in keys and values: %s", key.column)
+			return
 		}
 		setMap[key.column] = struct{}{}
 		columns = append(columns, key.column)
@@ -100,16 +100,15 @@ func (b UpsertBuilder) ToSql() (sqlStr string, args []interface{}, err error) {
 	for _, set := range b.vals {
 		if _, ok := setMap[set.column]; ok {
 			err = fmt.Errorf("duplicate column in keys and values: %s", set.column)
+			return
 		}
 		setMap[set.column] = struct{}{}
 		columns = append(columns, set.column)
 		values = append(values, set.value)
-		valList = append(valList, fmt.Sprintf("%s = EXCLUDED.%s", set.column, set.column))
 		updateStatement.Set(set.column, sqrl.Expr(fmt.Sprintf("EXCLUDED.%s", set.column)))
 	}
 
 	//	suffix := fmt.Sprintf("ON CONFLICT (%s) DO UPDATE SET %s", strings.Join(keyList, ","), strings.Join(valList, ", "))
-	updateStatement.ToSql()
 	updateString, suffixArgs, err := updateStatement.ToSql()
 	if err != nil {
 		return
