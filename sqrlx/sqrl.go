@@ -32,6 +32,11 @@ type Connection interface {
 	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
 }
 
+// Transactor is implemented by Wrapper
+type Transactor interface {
+	Transact(context.Context, *TxOptions, Callback) error
+}
+
 // ColumnType is implemented by *sql.ColumnType
 type ColumnType interface {
 	DatabaseTypeName() string

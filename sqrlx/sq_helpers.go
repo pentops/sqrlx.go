@@ -7,6 +7,11 @@ import (
 	"github.com/elgris/sqrl"
 )
 
+var (
+	Question = sqrl.Question
+	Dollar   = sqrl.Dollar
+)
+
 type CaseSumBuilder struct {
 	Target    string
 	Condition string
