@@ -100,6 +100,12 @@ type Wrapper struct {
 	ShouldRetryTransaction func(error) bool
 
 	DefaultTxOptions *TxOptions
+
+	QueryLogger QueryLogger
+}
+
+type QueryLogger interface {
+	LogQuery(context.Context, string, ...interface{})
 }
 
 type WrapperCommander struct {
@@ -124,6 +130,32 @@ func defaultShouldRetry(err error) bool {
 		return true
 	}
 	return false
+}
+
+type CallbackLogger func(context.Context, string)
+
+func (cb CallbackLogger) LogQuery(ctx context.Context, statement string, params ...interface{}) {
+	cb(ctx, fmt.Sprintf("QUERY %s", statement))
+	for i, param := range params {
+		switch param := param.(type) {
+		case []byte:
+			if len(param) > 1 && param[0] == '{' && param[len(param)-1] == '}' {
+				cb(ctx, fmt.Sprintf("  $%d %s", i, string(param)))
+				continue
+			}
+		}
+		cb(ctx, fmt.Sprintf("  $%d %#v", i, param))
+	}
+}
+
+func TestQueryLogger(t interface {
+	Log(...interface{})
+	Helper()
+}) QueryLogger {
+	return CallbackLogger(func(ctx context.Context, statement string) {
+		t.Helper()
+		t.Log(statement)
+	})
 }
 
 func New(conn Connection, placeholder PlaceholderFormat) (*Wrapper, error) {
@@ -200,6 +232,7 @@ func (w Wrapper) Transact(ctx context.Context, opts *TxOptions, cb Callback) (re
 			connWrapper:       w,
 			PlaceholderFormat: w.placeholderFormat,
 			RetryCount:        w.RetryCount,
+			queryLogger:       w.QueryLogger,
 		}
 
 		commander := &commandWrapper{
@@ -258,6 +291,7 @@ type txWrapper struct {
 	PlaceholderFormat
 	RetryCount    int
 	isTransaction bool
+	queryLogger   QueryLogger
 }
 
 func (w *txWrapper) Reset(ctx context.Context) error {
@@ -311,6 +345,10 @@ func (w txWrapper) SelectRaw(ctx context.Context, statement string, params ...in
 // QueryRaw runs a query directly with the driver, returning wrapped rows. It
 // will not attempt to retry. No retries are attempted, Use SelectRaw for automatic retries
 func (w txWrapper) QueryRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
+	if w.queryLogger != nil {
+		w.queryLogger.LogQuery(ctx, statement, params...)
+	}
+
 	rows, err := w.tx.QueryContext(ctx, statement, params...) // nolint rowserrcheck
 	if err != nil {
 		return nil, err
@@ -323,6 +361,10 @@ func (w txWrapper) QueryRaw(ctx context.Context, statement string, params ...int
 
 // ExecRaw runs an exec statement directly with the driver. No retries are attempted.
 func (w txWrapper) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
+	if w.queryLogger != nil {
+		w.queryLogger.LogQuery(ctx, statement, params...)
+	}
+
 	res, err := w.tx.ExecContext(ctx, statement, params...)
 	if err != nil {
 		return nil, &QueryError{
