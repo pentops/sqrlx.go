@@ -40,7 +40,7 @@ func rowFromRes(rows *Rows, err error) *Row {
 func (r Row) Scan(into ...interface{}) error {
 	// partial clone of sql.Row.Scan, but skipping the safety for the RawBytes issue
 	if r.err != nil {
-		return fmt.Errorf("row held error %w", r.err)
+		return r.err
 	}
 
 	defer r.Rows.Close()

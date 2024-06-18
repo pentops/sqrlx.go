@@ -171,6 +171,19 @@ func New(conn Connection, placeholder PlaceholderFormat) (*Wrapper, error) {
 	}, nil
 }
 
+func NewPostgres(conn Connection) *Wrapper {
+	return &Wrapper{
+		db:                     conn,
+		placeholderFormat:      Dollar,
+		RetryCount:             5,
+		ShouldRetryTransaction: defaultShouldRetry,
+		DefaultTxOptions: &TxOptions{
+			ReadOnly:  false,
+			Isolation: sql.LevelSerializable,
+		},
+	}
+}
+
 func NewWithCommander(conn Connection, placeholder PlaceholderFormat) (*WrapperCommander, error) {
 	ww := &Wrapper{
 		db:                     conn,
