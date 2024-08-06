@@ -19,11 +19,8 @@ linters:
     - unused
   disable:
     - wsl
-    - maligned
     - prealloc
     - gochecknoglobals
-    - scopelint
-    - unparam
   disable-all: false
   presets:
     - bugs
