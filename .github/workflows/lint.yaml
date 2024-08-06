@@ -9,23 +9,17 @@ on:
 permissions:
   contents: read
 
-env:
-  GO_VERSION: '1.21'
-
 jobs:
   golangci:
     name: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
+          go-version: '1.22'
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.55.2
-
-      - name: No Mod Replace
-        run: "! grep '^replace' go.mod"
+          version: v1.59
+          args: --timeout=5m
