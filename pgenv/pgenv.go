@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"time"
 
+	_ "github.com/lib/pq"
 	"github.com/pentops/log.go/log"
 	"github.com/pentops/sqrlx.go/sqrlx"
 )
