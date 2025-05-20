@@ -7,7 +7,7 @@ import (
 	sq "github.com/elgris/sqrl"
 )
 
-func InsertStruct(table string, srcs ...interface{}) (*sq.InsertBuilder, error) {
+func InsertStruct(table string, srcs ...any) (*sq.InsertBuilder, error) {
 
 	builder := sq.Insert(table)
 
@@ -24,7 +24,7 @@ func InsertStruct(table string, srcs ...interface{}) (*sq.InsertBuilder, error) 
 			return nil, fmt.Errorf("InsertStruct requires a pointer to a struct")
 		}
 
-		structCols := map[string]interface{}{}
+		structCols := map[string]any{}
 
 		if err := addNamed(&walkBaton{
 			structCols: structCols,
@@ -40,7 +40,7 @@ func InsertStruct(table string, srcs ...interface{}) (*sq.InsertBuilder, error) 
 			return nil, fmt.Errorf("length Mismatch on types")
 		}
 
-		values := make([]interface{}, 0)
+		values := make([]any, 0)
 
 		for _, tagName := range names {
 			values = append(values, structCols[tagName])
@@ -54,7 +54,7 @@ func InsertStruct(table string, srcs ...interface{}) (*sq.InsertBuilder, error) 
 
 }
 
-func UpdateStruct(table string, src interface{}) (*sq.UpdateBuilder, error) {
+func UpdateStruct(table string, src any) (*sq.UpdateBuilder, error) {
 
 	builder := sq.Update(table)
 
@@ -67,7 +67,7 @@ func UpdateStruct(table string, src interface{}) (*sq.UpdateBuilder, error) {
 		return nil, fmt.Errorf("UpdateStruct requires a pointer to a struct")
 	}
 
-	structCols := map[string]interface{}{}
+	structCols := map[string]any{}
 
 	if err := addNamed(&walkBaton{
 		structCols: structCols,

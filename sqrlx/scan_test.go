@@ -6,14 +6,14 @@ import (
 
 type MockRows struct {
 	ColumnsVal []string
-	ScanImpl   func(...interface{}) error
+	ScanImpl   func(...any) error
 	ErrVal     error
 	NextVal    bool
 
 	DidClose bool
 }
 
-func (ms *MockRows) Scan(vals ...interface{}) error {
+func (ms *MockRows) Scan(vals ...any) error {
 	return ms.ScanImpl(vals...)
 }
 
@@ -57,7 +57,7 @@ func TestScanErrors(t *testing.T) {
 
 		ms.ColumnsVal = []string{"b", "a"}
 
-		ms.ScanImpl = func(vals ...interface{}) error {
+		ms.ScanImpl = func(vals ...any) error {
 			if len(vals) != 2 {
 				t.Fatalf("Should have 2 vals, got %v", vals)
 			}

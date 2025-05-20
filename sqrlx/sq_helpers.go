@@ -15,17 +15,17 @@ var (
 type CaseSumBuilder struct {
 	Target    string
 	Condition string
-	Args      []interface{}
+	Args      []any
 }
 
-func (cs CaseSumBuilder) ToSql() (string, []interface{}, error) {
+func (cs CaseSumBuilder) ToSql() (string, []any, error) {
 	return fmt.Sprintf(`COALESCE(SUM(CASE WHEN %s THEN COALESCE(%s,0) ELSE 0 END), 0)`,
 		cs.Condition,
 		cs.Target,
 	), cs.Args, nil
 }
 
-func CaseSum(target, condition string, args ...interface{}) *CaseSumBuilder {
+func CaseSum(target, condition string, args ...any) *CaseSumBuilder {
 	return &CaseSumBuilder{
 		Target:    target,
 		Condition: condition,
@@ -35,7 +35,7 @@ func CaseSum(target, condition string, args ...interface{}) *CaseSumBuilder {
 
 type Join []sqrl.Sqlizer
 
-func (parts Join) ToSql() (sql string, args []interface{}, err error) {
+func (parts Join) ToSql() (sql string, args []any, err error) {
 	// taken from sqrl's conj.join private function
 
 	var sqlParts []string
@@ -57,7 +57,7 @@ func (parts Join) ToSql() (sql string, args []interface{}, err error) {
 
 type fieldPair struct {
 	column string
-	value  interface{}
+	value  any
 }
 
 type UpsertBuilder struct {
@@ -68,7 +68,7 @@ type UpsertBuilder struct {
 	updateStatement *sqrl.UpdateBuilder
 }
 
-func (b UpsertBuilder) ToSql() (sqlStr string, args []interface{}, err error) {
+func (b UpsertBuilder) ToSql() (sqlStr string, args []any, err error) {
 
 	if len(b.into) == 0 {
 		err = fmt.Errorf("upsert statements must specify a table")
@@ -86,7 +86,7 @@ func (b UpsertBuilder) ToSql() (sqlStr string, args []interface{}, err error) {
 	keyList := make([]string, 0, len(b.keys))
 
 	columns := make([]string, 0, len(b.keys)+len(b.vals))
-	values := make([]interface{}, 0, len(columns))
+	values := make([]any, 0, len(columns))
 	setMap := map[string]struct{}{}
 
 	updateStatement := b.updateStatement
@@ -137,7 +137,7 @@ func Upsert(into string) *UpsertBuilder {
 	}
 }
 
-func (u *UpsertBuilder) Key(column string, value interface{}) *UpsertBuilder {
+func (u *UpsertBuilder) Key(column string, value any) *UpsertBuilder {
 	u.keys = append(u.keys, fieldPair{
 		column: column,
 		value:  value,
@@ -145,14 +145,14 @@ func (u *UpsertBuilder) Key(column string, value interface{}) *UpsertBuilder {
 	return u
 }
 
-func (u *UpsertBuilder) KeyMap(keys map[string]interface{}) *UpsertBuilder {
+func (u *UpsertBuilder) KeyMap(keys map[string]any) *UpsertBuilder {
 	for k, v := range keys {
 		u.Key(k, v)
 	}
 	return u
 }
 
-func (u *UpsertBuilder) Set(column string, value interface{}) *UpsertBuilder {
+func (u *UpsertBuilder) Set(column string, value any) *UpsertBuilder {
 	u.vals = append(u.vals, fieldPair{
 		column: column,
 		value:  value,
@@ -160,14 +160,14 @@ func (u *UpsertBuilder) Set(column string, value interface{}) *UpsertBuilder {
 	return u
 }
 
-func (u *UpsertBuilder) SetMap(vals map[string]interface{}) *UpsertBuilder {
+func (u *UpsertBuilder) SetMap(vals map[string]any) *UpsertBuilder {
 	for k, v := range vals {
 		u.Set(k, v)
 	}
 	return u
 }
 
-func (u *UpsertBuilder) Where(pred interface{}, args ...interface{}) *UpsertBuilder {
+func (u *UpsertBuilder) Where(pred any, args ...any) *UpsertBuilder {
 	u.updateStatement.Where(pred, args...)
 	return u
 }

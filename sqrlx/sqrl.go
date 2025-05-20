@@ -27,8 +27,8 @@ func (err QueryError) Error() string {
 
 // Connection is Queryer + Begin
 type Connection interface {
-	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
-	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
 	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
 }
 
@@ -49,20 +49,20 @@ type ColumnType interface {
 
 // Commander runs database queries
 type Commander interface {
-	ExecRaw(context.Context, string, ...interface{}) (sql.Result, error)
+	ExecRaw(context.Context, string, ...any) (sql.Result, error)
 	Exec(context.Context, Sqlizer) (sql.Result, error)
 
-	QueryRaw(context.Context, string, ...interface{}) (*Rows, error)
+	QueryRaw(context.Context, string, ...any) (*Rows, error)
 	Query(context.Context, Sqlizer) (*Rows, error)
 
-	QueryRowRaw(context.Context, string, ...interface{}) *Row
+	QueryRowRaw(context.Context, string, ...any) *Row
 	QueryRow(context.Context, Sqlizer) *Row
 
 	SelectRow(context.Context, Sqlizer) *Row
 	Select(context.Context, Sqlizer) (*Rows, error)
 	Insert(context.Context, Sqlizer) (sql.Result, error)
 	InsertRow(context.Context, Sqlizer) (bool, error)
-	InsertStruct(context.Context, string, ...interface{}) (sql.Result, error)
+	InsertStruct(context.Context, string, ...any) (sql.Result, error)
 	Update(context.Context, Sqlizer) (sql.Result, error)
 	Delete(context.Context, Sqlizer) (sql.Result, error)
 }
@@ -83,7 +83,7 @@ type PlaceholderFormat interface {
 }
 
 type Sqlizer interface {
-	ToSql() (string, []interface{}, error)
+	ToSql() (string, []any, error)
 }
 
 type Wrapper struct {
@@ -105,7 +105,7 @@ type Wrapper struct {
 }
 
 type QueryLogger interface {
-	LogQuery(context.Context, string, ...interface{})
+	LogQuery(context.Context, string, ...any)
 }
 
 type WrapperCommander struct {
@@ -134,7 +134,7 @@ func defaultShouldRetry(err error) bool {
 
 type CallbackLogger func(context.Context, string)
 
-func (cb CallbackLogger) LogQuery(ctx context.Context, statement string, params ...interface{}) {
+func (cb CallbackLogger) LogQuery(ctx context.Context, statement string, params ...any) {
 	cb(ctx, fmt.Sprintf("QUERY %s", statement))
 	for i, param := range params {
 		switch param := param.(type) {
@@ -149,7 +149,7 @@ func (cb CallbackLogger) LogQuery(ctx context.Context, statement string, params 
 }
 
 func TestQueryLogger(t interface {
-	Log(...interface{})
+	Log(...any)
 	Helper()
 }) QueryLogger {
 	return CallbackLogger(func(ctx context.Context, statement string) {
@@ -219,9 +219,9 @@ type TxOptions struct {
 }
 
 type rawCommander interface {
-	QueryRaw(context.Context, string, ...interface{}) (*Rows, error)
-	ExecRaw(context.Context, string, ...interface{}) (sql.Result, error)
-	SelectRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error)
+	QueryRaw(context.Context, string, ...any) (*Rows, error)
+	ExecRaw(context.Context, string, ...any) (sql.Result, error)
+	SelectRaw(ctx context.Context, statement string, params ...any) (*Rows, error)
 	PlaceholderFormat
 }
 
@@ -238,7 +238,7 @@ func (w Wrapper) Transact(ctx context.Context, opts *TxOptions, cb Callback) (re
 
 	var exitWithError error
 
-	for tries := 0; tries < w.RetryCount; tries++ {
+	for tries := range w.RetryCount {
 
 		txWrapped := &txWrapper{
 			opts:              opts,
@@ -333,11 +333,11 @@ func (w txWrapper) PrepareRaw(ctx context.Context, str string) (*sql.Stmt, error
 
 // SelectRaw runs a string + params query, with automatic retry on transient
 // errors. Do not use SELECT queries to modify data.
-func (w txWrapper) SelectRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
+func (w txWrapper) SelectRaw(ctx context.Context, statement string, params ...any) (*Rows, error) {
 	var err error
 	var rows *Rows
 	var firstError error
-	for tries := 0; tries < w.RetryCount; tries++ {
+	for range w.RetryCount {
 		rows, err = w.QueryRaw(ctx, statement, params...)
 		if err == nil || err == sql.ErrNoRows || w.isTransaction {
 			return rows, err
@@ -357,7 +357,7 @@ func (w txWrapper) SelectRaw(ctx context.Context, statement string, params ...in
 
 // QueryRaw runs a query directly with the driver, returning wrapped rows. It
 // will not attempt to retry. No retries are attempted, Use SelectRaw for automatic retries
-func (w txWrapper) QueryRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
+func (w txWrapper) QueryRaw(ctx context.Context, statement string, params ...any) (*Rows, error) {
 	if w.queryLogger != nil {
 		w.queryLogger.LogQuery(ctx, statement, params...)
 	}
@@ -373,7 +373,7 @@ func (w txWrapper) QueryRaw(ctx context.Context, statement string, params ...int
 }
 
 // ExecRaw runs an exec statement directly with the driver. No retries are attempted.
-func (w txWrapper) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
+func (w txWrapper) ExecRaw(ctx context.Context, statement string, params ...any) (sql.Result, error) {
 	if w.queryLogger != nil {
 		w.queryLogger.LogQuery(ctx, statement, params...)
 	}
@@ -394,13 +394,13 @@ type rawDirect struct {
 }
 
 // SelectRaw runs a string + params query
-func (w rawDirect) SelectRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
+func (w rawDirect) SelectRaw(ctx context.Context, statement string, params ...any) (*Rows, error) {
 	return w.QueryRaw(ctx, statement, params...)
 }
 
 // QueryRaw runs a query directly with the driver, returning wrapped rows. It
 // will not attempt to retry. No retries are attempted, Use SelectRaw for automatic retries
-func (w rawDirect) QueryRaw(ctx context.Context, statement string, params ...interface{}) (*Rows, error) {
+func (w rawDirect) QueryRaw(ctx context.Context, statement string, params ...any) (*Rows, error) {
 	rows, err := w.db.QueryContext(ctx, statement, params...) // nolint rowserrcheck
 	if err != nil {
 		return nil, err
@@ -412,7 +412,7 @@ func (w rawDirect) QueryRaw(ctx context.Context, statement string, params ...int
 }
 
 // ExecRaw runs an exec statement directly with the driver. No retries are attempted.
-func (w rawDirect) ExecRaw(ctx context.Context, statement string, params ...interface{}) (sql.Result, error) {
+func (w rawDirect) ExecRaw(ctx context.Context, statement string, params ...any) (sql.Result, error) {
 	res, err := w.db.ExecContext(ctx, statement, params...)
 	if err != nil {
 		return nil, &QueryError{
@@ -467,7 +467,7 @@ func (w commandWrapper) InsertRow(ctx context.Context, bb Sqlizer) (bool, error)
 	return false, fmt.Errorf("%d rows effected by InsertRow", count)
 }
 
-func (w commandWrapper) InsertStruct(ctx context.Context, tableName string, vals ...interface{}) (sql.Result, error) {
+func (w commandWrapper) InsertStruct(ctx context.Context, tableName string, vals ...any) (sql.Result, error) {
 	bb, err := InsertStruct(tableName, vals...)
 	if err != nil {
 		return nil, err
@@ -530,6 +530,6 @@ func (w commandWrapper) QueryRow(ctx context.Context, bb Sqlizer) *Row {
 
 // QueryRowRaw returns a single row, otherwise is the same as QueryRaw. No
 // Retries are attempted, use SelectRowRaw for automatic retries
-func (w commandWrapper) QueryRowRaw(ctx context.Context, statement string, params ...interface{}) *Row {
+func (w commandWrapper) QueryRowRaw(ctx context.Context, statement string, params ...any) *Row {
 	return rowFromRes(w.QueryRaw(ctx, statement, params...))
 }

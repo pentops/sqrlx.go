@@ -21,11 +21,11 @@ func (testPlaceholder) ReplacePlaceholders(sql string) (string, error) {
 
 type testSqlizer struct {
 	str  string
-	args []interface{}
+	args []any
 	err  error
 }
 
-func (ts testSqlizer) ToSql() (string, []interface{}, error) {
+func (ts testSqlizer) ToSql() (string, []any, error) {
 	return ts.str, ts.args, ts.err
 }
 
@@ -75,7 +75,7 @@ func TestQueryHappy(t *testing.T) {
 
 	q := testSqlizer{
 		str:  "SELECT a FROM b WHERE c = ?",
-		args: []interface{}{"hello"},
+		args: []any{"hello"},
 		err:  nil,
 	}
 	_, err := tx.Query(ctx, q)
@@ -114,7 +114,7 @@ func TestQueryRowHappy(t *testing.T) {
 
 	q := testSqlizer{
 		str:  "SELECT a FROM b WHERE c = ?",
-		args: []interface{}{"hello"},
+		args: []any{"hello"},
 		err:  nil,
 	}
 
@@ -164,7 +164,7 @@ func TestSelectRetry(t *testing.T) {
 
 	q := testSqlizer{
 		str:  "SELECT a FROM b WHERE c = ?",
-		args: []interface{}{"hello"},
+		args: []any{"hello"},
 		err:  nil,
 	}
 
@@ -181,7 +181,7 @@ func TestSelectRetry(t *testing.T) {
 func TestQueryRowServerError(t *testing.T) {
 	mockRows := &MockRows{
 		NextVal: true,
-		ScanImpl: func(vals ...interface{}) error {
+		ScanImpl: func(vals ...any) error {
 			if len(vals) != 1 {
 				t.Fatalf("Should have 1 vals, got %v", vals)
 			}
@@ -226,7 +226,7 @@ func TestExecHappy(t *testing.T) {
 
 	q := testSqlizer{
 		str:  "INSERT INTO b VALUES (?)",
-		args: []interface{}{"c"},
+		args: []any{"c"},
 		err:  nil,
 	}
 
@@ -260,7 +260,7 @@ func TestInsertRowChanged(t *testing.T) {
 
 			q := testSqlizer{
 				str:  "INSERT INTO b VALUES (?)",
-				args: []interface{}{"c"},
+				args: []any{"c"},
 				err:  nil,
 			}
 
@@ -312,7 +312,7 @@ func TestExecServerError(t *testing.T) {
 
 	q := testSqlizer{
 		str:  "INSERT INTO b VALUES (?)",
-		args: []interface{}{"c"},
+		args: []any{"c"},
 		err:  nil,
 	}
 

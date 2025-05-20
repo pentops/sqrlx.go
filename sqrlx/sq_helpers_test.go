@@ -2,7 +2,7 @@ package sqrlx
 
 import "testing"
 
-func compareSQL(t testing.TB, stmt Sqlizer, wantText string, wantArgs ...interface{}) {
+func compareSQL(t testing.TB, stmt Sqlizer, wantText string, wantArgs ...any) {
 
 	gotText, gotArgs, err := stmt.ToSql()
 	if err != nil {

@@ -7,7 +7,7 @@ import (
 
 // IRows is the interface of *sql.Rows
 type IRows interface {
-	Scan(...interface{}) error
+	Scan(...any) error
 	Columns() ([]string, error)
 	Next() bool
 	Close() error
@@ -37,7 +37,7 @@ func rowFromRes(rows *Rows, err error) *Row {
 	}
 }
 
-func (r Row) Scan(into ...interface{}) error {
+func (r Row) Scan(into ...any) error {
 	// partial clone of sql.Row.Scan, but skipping the safety for the RawBytes issue
 	if r.err != nil {
 		return fmt.Errorf("existing row error in scan: %w", r.err)
@@ -57,7 +57,7 @@ func (r Row) Scan(into ...interface{}) error {
 	return r.Rows.Close()
 }
 
-func (r Row) ScanStruct(into interface{}) error {
+func (r Row) ScanStruct(into any) error {
 	if err := ScanStruct(r, into); err != nil {
 		return fmt.Errorf("scan struct: %w", err)
 	}
