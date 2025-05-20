@@ -524,6 +524,7 @@ func (w commandWrapper) Query(ctx context.Context, bb Sqlizer) (*Rows, error) {
 	return rows, err
 }
 
+// QueryRows runs the statement, and calls fn for each row in the result.
 func (w commandWrapper) QueryRows(ctx context.Context, bb Sqlizer, fn func(Scannable) error) error {
 	rows, err := w.Query(ctx, bb)
 	if err != nil {

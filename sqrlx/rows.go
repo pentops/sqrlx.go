@@ -20,6 +20,7 @@ type Rows struct {
 	IRows
 }
 
+// Each iterates over the rows, handling close and error checking.
 func (rr *Rows) Each(fn func(Scannable) error) error {
 	var err error
 	for rr.Next() {
