@@ -37,7 +37,7 @@ func InsertStruct(table string, srcs ...interface{}) (*sq.InsertBuilder, error) 
 				names = append(names, tagName)
 			}
 		} else if len(names) != len(structCols) {
-			return nil, fmt.Errorf("Length Mismatch on types")
+			return nil, fmt.Errorf("length Mismatch on types")
 		}
 
 		values := make([]interface{}, 0)

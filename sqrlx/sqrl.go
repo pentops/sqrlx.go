@@ -260,7 +260,7 @@ func (w Wrapper) Transact(ctx context.Context, opts *TxOptions, cb Callback) (re
 		if err := func() (err error) {
 			defer func() {
 				if r := recover(); r != nil {
-					err = fmt.Errorf("Panic: %s", r)
+					err = fmt.Errorf("panic: %s", r)
 					fmt.Println("Recovering TX Panic " + err.Error() + "\n" + string(debug.Stack()))
 				}
 			}()
@@ -433,11 +433,11 @@ func (w commandWrapper) Exec(ctx context.Context, bb Sqlizer) (sql.Result, error
 	if err != nil {
 		return nil, err
 	}
-	statement, err = w.rawCommander.ReplacePlaceholders(statement)
+	statement, err = w.ReplacePlaceholders(statement)
 	if err != nil {
 		return nil, err
 	}
-	return w.rawCommander.ExecRaw(ctx, statement, params...)
+	return w.ExecRaw(ctx, statement, params...)
 }
 
 // Deprecated: Use Exec
@@ -492,12 +492,12 @@ func (w commandWrapper) Select(ctx context.Context, bb Sqlizer) (*Rows, error) {
 		return nil, err
 	}
 
-	statement, err = w.rawCommander.ReplacePlaceholders(statement)
+	statement, err = w.ReplacePlaceholders(statement)
 	if err != nil {
 		return nil, err
 	}
 
-	return w.rawCommander.SelectRaw(ctx, statement, params...)
+	return w.SelectRaw(ctx, statement, params...)
 
 }
 
@@ -514,12 +514,12 @@ func (w commandWrapper) Query(ctx context.Context, bb Sqlizer) (*Rows, error) {
 		return nil, err
 	}
 
-	statement, err = w.rawCommander.ReplacePlaceholders(statement)
+	statement, err = w.ReplacePlaceholders(statement)
 	if err != nil {
 		return nil, err
 	}
 
-	rows, err := w.rawCommander.QueryRaw(ctx, statement, params...)
+	rows, err := w.QueryRaw(ctx, statement, params...)
 	return rows, err
 }
 
@@ -531,5 +531,5 @@ func (w commandWrapper) QueryRow(ctx context.Context, bb Sqlizer) *Row {
 // QueryRowRaw returns a single row, otherwise is the same as QueryRaw. No
 // Retries are attempted, use SelectRowRaw for automatic retries
 func (w commandWrapper) QueryRowRaw(ctx context.Context, statement string, params ...interface{}) *Row {
-	return rowFromRes(w.rawCommander.QueryRaw(ctx, statement, params...))
+	return rowFromRes(w.QueryRaw(ctx, statement, params...))
 }

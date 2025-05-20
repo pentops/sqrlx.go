@@ -122,7 +122,7 @@ func ScanStruct(src Scannable, dest interface{}) error {
 		structCol, ok := structCols[name]
 		if !ok {
 
-			return fmt.Errorf("No matching struct field for %s", name)
+			return fmt.Errorf("no matching struct field for %s", name)
 		}
 		toScan[idx] = structCol
 	}
