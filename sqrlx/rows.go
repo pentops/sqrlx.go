@@ -20,6 +20,27 @@ type Rows struct {
 	IRows
 }
 
+func (rr *Rows) Each(fn func(Scannable) error) error {
+	var err error
+	for rr.Next() {
+		err = fn(rr)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err = rr.Err(); err != nil {
+		_ = rr.Close()
+		return err
+	}
+
+	if err = rr.Close(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type Row struct {
 	Rows IRows
 	err  error

@@ -57,6 +57,7 @@ type Commander interface {
 
 	QueryRowRaw(context.Context, string, ...any) *Row
 	QueryRow(context.Context, Sqlizer) *Row
+	QueryRows(context.Context, Sqlizer, func(Scannable) error) error
 
 	SelectRow(context.Context, Sqlizer) *Row
 	Select(context.Context, Sqlizer) (*Rows, error)
@@ -521,6 +522,14 @@ func (w commandWrapper) Query(ctx context.Context, bb Sqlizer) (*Rows, error) {
 
 	rows, err := w.QueryRaw(ctx, statement, params...)
 	return rows, err
+}
+
+func (w commandWrapper) QueryRows(ctx context.Context, bb Sqlizer, fn func(Scannable) error) error {
+	rows, err := w.Query(ctx, bb)
+	if err != nil {
+		return err
+	}
+	return rows.Each(fn)
 }
 
 // QueryRow returns a single row, otherwise is the same as Query. No retries are attempted.
