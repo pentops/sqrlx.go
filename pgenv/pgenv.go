@@ -13,9 +13,13 @@ import (
 type DatabaseConfig struct {
 	URL          string `env:"POSTGRES_URL"`
 	MaxOpenConns int    `env:"POSTGRES_MAX_OPEN_CONNS" default:"10"`
+	PingTimeout  int    `env:"POSTGRES_PING_TIMEOUT_SECONDS" default:"10"`
 }
 
 func (cfg *DatabaseConfig) OpenPostgres(ctx context.Context) (*sql.DB, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*time.Duration(cfg.PingTimeout))
+	defer cancel()
+
 	db, err := sql.Open("postgres", cfg.URL)
 	if err != nil {
 		return nil, err
