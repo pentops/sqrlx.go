@@ -8,23 +8,6 @@ import (
 	"runtime/debug"
 )
 
-// QueryError is thrown by all exec and query commands to wrap the driver error.
-// It includes the statement causing the error
-type QueryError struct {
-	cause     error
-	Statement string
-}
-
-// Cause gives the driver error which was thrown
-func (err QueryError) Unwrap() error {
-	return err.cause
-}
-
-// Error is the cause error + the statement causing it
-func (err QueryError) Error() string {
-	return err.cause.Error() + " `" + err.Statement + "` "
-}
-
 // Connection is Queryer + Begin
 type Connection interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
